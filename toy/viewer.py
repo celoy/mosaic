@@ -4,8 +4,9 @@
     python toy/viewer.py levels/T02_rps.json --smoke 120   # headless test, saves a PNG
 
 Click two unlocked blocks to swap them (only while running, not while paused).
-Buttons or keys: Space pause, 1/2/3 speed x1/x4/x16, R restart, S screenshot, Esc quit.
---n N overrides the grid size (e.g. --n 128 to see May-Leonard spirals).
+Buttons or keys: Space pause, 1/2/3/4 speed x1/4, x1, x4, x16, R restart, S screenshot, Esc quit.
+Zoom: mouse wheel or +/- (about the cursor), drag the grid to pan, 0 to see the whole world.
+--n N plays on an N x N rectangular torus instead of the level's world.
 --world torus:64 | open:64 | hextorus:37 | hexagon:37 overrides the world shape
 (hextorus = hexagon with opposite sides glued; hexagon = open hexagon).
 Swaps are logged to runs/viewer/<level>_<time>/session.json.
@@ -30,17 +31,19 @@ sys.path.insert(0, str(ROOT / "toy"))
 
 from mosaic_model import GoalTracker, Level, Sim, load_level, make_sim  # noqa: E402
 from mosaic_model.graph import SQRT3  # noqa: E402
-from mosaic_model.raster import fit_size, render_rgb, view_pixel_map  # noqa: E402
+from mosaic_model.raster import fit_size, render_rgb, view_pixel_map, world_centre  # noqa: E402
 from mosaic_model.reactions import ARITY, Block  # noqa: E402
-from palette import glyphs, names, palette_rgb  # noqa: E402
+from palette import colour_names, glyphs, names, palette_rgb  # noqa: E402
 
 RB = 16.0  # circumradius of an equation block (hexagon), px
 GAP = 1.08  # spacing factor between neighbouring blocks (1 = touching)
 WHITE = (235, 235, 240)
 GREY = (140, 140, 150)
 DARK = (25, 25, 30)
-LAMP_OFF = (60, 55, 40)
-LAMP_ON = (255, 220, 90)
+METER_FACE = (232, 222, 190)
+METER_INK = (40, 36, 30)
+NEEDLE = (200, 40, 30)
+EQ_DX = 64  # x offset of the first equation block from the panel edge (room for the meter)
 
 
 def load_cfg() -> dict:
@@ -66,6 +69,7 @@ class Viewer:
         pal = cfg["palette"]
         self.palette_name = pal["default"]
         self.pal = palette_rgb(cfg, level.palette, self.palette_name)
+        self.cnames = colour_names(cfg, level.palette, self.palette_name)
         self.bg = pygame.Color(pal["background"])[:3]
         self.glyphs = glyphs(cfg, level.palette)
         self.show_glyphs = bool(pal.get("show_glyphs", False))
@@ -78,9 +82,10 @@ class Viewer:
         self.start_cols = list(self.sim0.col)
         g = self.sim0.graph
         gw = cfg["window"]["grid_width"]
-        size = fit_size(g, gw - 20, h - 20)  # whole world visible; periodic worlds tile out
-        self.pixmap = view_pixel_map(g, size, gw, h, border=cfg["grid"]["border"])
+        self.fit = fit_size(g, gw - 20, h - 20)  # whole world visible; periodic worlds tile out
+        self.zoom_reset()
         self.grid_rect = pygame.Rect(0, 0, gw, h)
+        self.dragging = False
         self.grid_surf = pygame.Surface(self.grid_rect.size)
         self.panel_x = self.grid_rect.right + 20
         self.restarts = 0
@@ -107,11 +112,13 @@ class Viewer:
         self.hist_t: list[float] = [0.0]
         self.hist_x: list[np.ndarray] = [self.sim.fractions()]
         self.lamps = np.zeros(len(self.sim.fires))
+        self.needles = np.zeros(len(self.sim.fires))  # dial position in [0, 1]
         self.last_fires = list(self.sim.fires)
         self.last_t = 0.0
         self.selected: Block | None = None
         self.paused = False
-        self.speed_i = 0
+        mults = self.cfg["speed"]["multipliers"]
+        self.speed_i = mults.index(1) if 1 in mults else 0
         self.due = 0.0
         self.rate_meas = 0.0
 
@@ -127,6 +134,52 @@ class Viewer:
         }
         self.session.append(ev)
         print(f"swap at sweep {self.sim.sweeps} (t={self.sim.t:.2f}): {a} <-> {b}", flush=True)
+
+    # ---- zoom and pan -------------------------------------------------------------------------
+    def zoom_reset(self) -> None:
+        self.size = self.fit
+        self.centre = world_centre(self.sim0.graph)
+        self.map_dirty = True
+
+    def zoom(self, factor: float, at: tuple[int, int] | None = None) -> None:
+        """Zoom by `factor` keeping the world point under pixel `at` fixed."""
+        gw, h = self.cfg["window"]["grid_width"], self.cfg["window"]["height"]
+        new = min(max(self.size * factor, self.fit), self.cfg["grid"]["max_cell_px"])
+        if at is not None:
+            wx = self.centre[0] + (at[0] - gw / 2) / self.size
+            wy = self.centre[1] + (at[1] - h / 2) / self.size
+            self.centre = (wx - (at[0] - gw / 2) / new, wy - (at[1] - h / 2) / new)
+        self.size = new
+        if self.size <= self.fit * 1.0001:
+            self.centre = world_centre(self.sim0.graph)
+        self.map_dirty = True
+
+    def pan(self, dx: float, dy: float) -> None:
+        self.centre = (self.centre[0] - dx / self.size, self.centre[1] - dy / self.size)
+        g = self.sim0.graph
+        if not g.periodic:  # keep some of an open world in view
+            lo, hi = g.centers.min(axis=0), g.centers.max(axis=0)
+            self.centre = (
+                float(np.clip(self.centre[0], lo[0], hi[0])),
+                float(np.clip(self.centre[1], lo[1], hi[1])),
+            )
+        self.map_dirty = True
+
+    def _remap(self) -> None:
+        if self.map_dirty:
+            gw, h = self.cfg["window"]["grid_width"], self.cfg["window"]["height"]
+            self.pixmap = view_pixel_map(
+                self.sim0.graph, self.size, gw, h, self.cfg["grid"]["border"], self.centre
+            )
+            self.map_dirty = False
+
+    def move_needles(self, dt_wall: float) -> None:
+        """Needles swing toward the smoothed firing rate (log dial), with a short lag."""
+        lc = self.cfg["lamps"]
+        lo, hi = math.log10(lc["lo"]), math.log10(lc["hi"])
+        target = np.clip((np.log10(np.maximum(self.lamps, 1e-12)) - lo) / (hi - lo), 0.0, 1.0)
+        a = 1.0 - math.exp(-dt_wall / lc["needle_tau"]) if dt_wall > 0 else 1.0
+        self.needles += a * (target - self.needles)
 
     def step(self, dt_wall: float) -> None:
         """Advance base_time_per_s * multiplier sim time units per wall second, in chunks of
@@ -169,6 +222,7 @@ class Viewer:
     def draw(self) -> None:
         pg = self.pg
         self.screen.fill(self.bg)
+        self._remap()
         rgb = render_rgb(self.pixmap, self.sim.colours, self.pal, self.bg)
         pg.surfarray.blit_array(self.grid_surf, rgb.swapaxes(0, 1))
         self.screen.blit(self.grid_surf, self.grid_rect)
@@ -189,9 +243,10 @@ class Viewer:
         y += self._text(f"{lv.id}  {lv.title}", (x, y))
         mode = "SHUFFLED (well-mixed)" if self.shuffled else "grid"
         mult = self.cfg["speed"]["multipliers"][self.speed_i]
-        state = "PAUSED" if self.paused else f"x{mult}"
+        state = "PAUSED" if self.paused else _mult_label(mult)
+        zoom = f"zoom {self.size / self.fit:.1f}x   " if self.size > self.fit * 1.001 else ""
         y += self._text(
-            f"t = {sim.t:7.1f}   sweep {sim.sweeps}   {state}   "
+            f"t = {sim.t:7.1f}   sweep {sim.sweeps}   {state}   {zoom}"
             f"{self.rate_meas:4.2f} t/s   K={sim.K:g}   {mode}",
             (x, y + 2),
             self.small,
@@ -204,7 +259,7 @@ class Viewer:
         x = self.panel_x
         mults = self.cfg["speed"]["multipliers"]
         labels = [("pause", "Play" if self.paused else "Pause", 70)]
-        labels += [(f"speed{i}", f"x{m:g}", 44) for i, m in enumerate(mults)]
+        labels += [(f"speed{i}", _mult_label(m), 48) for i, m in enumerate(mults)]
         labels += [("restart", "Restart", 70)]
         self.buttons = {}
         for key, text, w in labels:
@@ -275,7 +330,7 @@ class Viewer:
         cents: dict[Block, tuple[float, float]] = {}
         rows = []
         w = SQRT3 * RB * GAP  # centre spacing of neighbours
-        x_in = self.panel_x + 40 + RB
+        x_in = self.panel_x + EQ_DX + RB
         x_out = x_in + 2 * w + 60
         for i, r in enumerate(self.sim.reactions.reactions):
             m = ARITY[r.shape]
@@ -325,35 +380,30 @@ class Viewer:
         pg = self.pg
         rs = self.sim.reactions
         col = rs.get(b)
-        if b == self.selected:
-            pg.draw.polygon(self.screen, WHITE, self._hex_points(c, RB + 4))
+        if b == self.selected:  # white ring with a gap: visible on any block colour
+            pg.draw.polygon(self.screen, WHITE, self._hex_points(c, RB + 7))
+            pg.draw.polygon(self.screen, self.bg, self._hex_points(c, RB + 4))
+        locked = b in rs.locked
+        if locked:  # a fixed block sits in a grey frame, like a tile set in the panel
+            pg.draw.polygon(self.screen, GREY, self._hex_points(c, RB + 3))
         pg.draw.polygon(self.screen, self.pal[col], self._hex_points(c, RB))
+        if locked:
+            pg.draw.polygon(self.screen, DARK, self._hex_points(c, RB), 2)
         if self.show_glyphs:
             self._draw_glyph(self.glyphs[col], c, DARK)
-        if b in rs.locked:
-            # padlock badge at the upper right
-            lx, ly = c[0] + RB * 0.7, c[1] - RB * 0.6
-            pg.draw.circle(self.screen, DARK, (lx, ly), 7)
-            pg.draw.rect(self.screen, WHITE, pg.Rect(lx - 4, ly - 1, 8, 6))
-            pg.draw.arc(self.screen, WHITE, pg.Rect(lx - 3, ly - 6, 6, 9), 0, math.pi, 2)
 
     def _draw_equations(self, y: int) -> int:
         pg = self.pg
         cents, rows = self._block_layout(y)
         self.block_centres = cents
-        half = self.cfg["lamps"]["half"]
         w = SQRT3 * RB * GAP
         for i, ry, h in rows:
             r = self.sim.reactions.reactions[i]
-            # lamp
             lv = float(self.lamps[i])
-            b = lv / (lv + half) if lv > 0 else 0.0
-            col = [int(LAMP_OFF[k] + b * (LAMP_ON[k] - LAMP_OFF[k])) for k in range(3)]
             cy = ry + h // 2
-            pg.draw.circle(self.screen, col, (self.panel_x + 14, cy), 11)
-            pg.draw.circle(self.screen, GREY, (self.panel_x + 14, cy), 11, 1)
+            self._draw_meter(self.panel_x + 2, cy, float(self.needles[i]))
             # arrow: thin line + open chevrons; 1-3 chevrons for slow / medium / fastest k
-            ax = self.panel_x + 40 + 2 * RB + w + 8
+            ax = self.panel_x + EQ_DX + 2 * RB + w + 8
             kmax = max(q.rate for q in self.sim.reactions.reactions) or 1.0
             frac = r.rate / kmax
             n_chev = 3 if frac > 0.75 else (2 if frac > 0.4 else 1)
@@ -371,11 +421,45 @@ class Viewer:
             for b_, c in cents.items():
                 if b_[0] == i:
                     self._draw_block(b_, c)
-            info = f"k={r.rate:g}   {lv:.3f}/cell/t"
+            info = f"k={r.rate:g}  {lv:.3f}"
             if r.shape == "vertex":
-                info = ("clockwise only   " if r.chiral else "either hand   ") + info
-            self._text(info, (self.panel_x + 40 + 4 * w + 90, cy - 7), self.small, GREY)
+                info += "  cw only" if r.chiral else "  either hand"
+            self._text(info, (self.panel_x + EQ_DX + 4 * w + 90, cy - 7), self.small, GREY)
         return rows[-1][1] + rows[-1][2] + 14 if rows else y
+
+    def _draw_meter(self, x: float, cy: float, f: float) -> None:
+        """Small VU-style dial at (x, cy - 14), 52 x 30 px: log firing rate, one tick per
+        decade, needle at fraction f of the scale."""
+        pg = self.pg
+        lc = self.cfg["lamps"]
+        r = pg.Rect(x, cy - 15, 52, 30)
+        pg.draw.rect(self.screen, METER_FACE, r, border_radius=4)
+        px, py = r.centerx, r.bottom - 3
+        rad = 22.0
+        a0, a1 = math.radians(150), math.radians(30)  # left and right ends of the scale
+        decades = round(math.log10(lc["hi"] / lc["lo"]))
+        for k in range(decades + 1):
+            a = a0 + (a1 - a0) * k / decades
+            ca, sa = math.cos(a), math.sin(a)
+            pg.draw.line(
+                self.screen,
+                METER_INK,
+                (px + 0.80 * rad * ca, py - 0.80 * rad * sa),
+                (px + rad * ca, py - rad * sa),
+                1,
+            )
+        pts = [
+            (
+                px + rad * math.cos(a0 + (a1 - a0) * t / 12),
+                py - rad * math.sin(a0 + (a1 - a0) * t / 12),
+            )
+            for t in range(13)
+        ]
+        pg.draw.aalines(self.screen, METER_INK, False, pts)
+        a = a0 + (a1 - a0) * f
+        tip = (px + (rad - 1) * math.cos(a), py - (rad - 1) * math.sin(a))
+        pg.draw.line(self.screen, NEEDLE, (px, py), tip, 2)
+        pg.draw.circle(self.screen, METER_INK, (px, py), 3)
 
     def _draw_chart(self, y: int) -> None:
         pg = self.pg
@@ -417,25 +501,49 @@ class Viewer:
                 pg.draw.lines(self.screen, self.pal[c], False, pts, 2)
         self._text("fractions vs time", (x + 4, y + 3), self.small, GREY)
         # goals
-        yy = y + h + 8
+        yy = y + h + 10
         for k, goal in enumerate(self.level.goals):
             pr = self.tracker.progress(self.sim.t)[k]
-            yy += self._text(f"goal: {self._goal_text(goal)}   [{pr:4.0%}]", (x, yy)) + 2
+            yy += self._draw_segments(self._goal_segments(goal, f"[{pr:4.0%}]  goal:"), x, yy)
         for f in self.level.fail:
-            yy += self._text(f"fail if: {self._goal_text(f)}", (x, yy), col=GREY) + 2
-        help_ = "swap: click 2 blocks while running | more chevrons = faster | keys: spc 1 2 3 R S"
+            yy += self._draw_segments(self._goal_segments(f, "fail if:", fail=True), x, yy, GREY)
+        help_ = "click 2 blocks to swap | wheel zoom, drag pan, 0 reset | spc 1-4 R S"
         self._text(help_, (x, self.screen.get_height() - 22), self.small, GREY)
 
-    @staticmethod
-    def _goal_text(g: dict) -> str:
+    def _goal_segments(self, g: dict, prefix: str, fail: bool = False) -> list:
+        """Goal as text pieces and colour swatches (ints), e.g. ["goal: make", 2, "coral",
+        "extinct"]."""
+        nm = self.cnames
         if g["type"] == "extinct":
-            return f"colour {g['color']} extinct"
+            c = g["color"]
+            return [prefix, *([] if fail else ["make"]), c, nm[c], "extinct"]
         if g["type"] == "hold":
-            b = ", ".join(f"{lo:g}-{hi:g}" for lo, hi in g["bands"])
-            return f"hold fractions in [{b}] for t={g['duration']:g}"
+            seg: list = [prefix, "hold"]
+            for c, (lo, hi) in enumerate(g["bands"]):
+                if lo > 0 or hi < 1:
+                    seg += [c, f"{lo:g}-{hi:g}"]
+            return seg + [f"for t = {g['duration']:g}"]
         if g["type"] == "reach":
-            return f"reach {g['target']} +/- {g['tol']:g} for t={g['duration']:g}"
-        return json.dumps(g)
+            seg = [prefix, "reach"]
+            for c, v in enumerate(g["target"]):
+                seg += [c, f"{v:g}"]
+            return seg + [f"(+/- {g['tol']:g}) for t = {g['duration']:g}"]
+        return [prefix, json.dumps(g)]
+
+    def _draw_segments(self, segs: list, x: float, y: float, col=WHITE) -> int:
+        """Draw text pieces separated by spaces; an int is a hex swatch of that colour."""
+        for s_ in segs:
+            if isinstance(s_, int):
+                c = (x + 8, y + 7)
+                pg = self.pg
+                pg.draw.polygon(self.screen, GREY, self._hex_points(c, 9))
+                pg.draw.polygon(self.screen, self.pal[s_], self._hex_points(c, 8))
+                x += 20
+            else:
+                surf = self.font.render(s_, True, col)
+                self.screen.blit(surf, (x, y))
+                x += surf.get_width() + 6
+        return 22
 
     def _draw_status(self) -> None:
         st = self.tracker.status
@@ -460,6 +568,9 @@ class Viewer:
             if not key.startswith("pal:") and r.collidepoint(pos):
                 self.button(key)
                 return
+        if self.grid_rect.collidepoint(pos):
+            self.dragging = True
+            return
         hit = None
         for b, c in getattr(self, "block_centres", {}).items():
             if (pos[0] - c[0]) ** 2 + (pos[1] - c[1]) ** 2 <= (RB * SQRT3 / 2) ** 2:
@@ -485,6 +596,7 @@ class Viewer:
     def set_palette(self, name: str) -> None:
         self.palette_name = name
         self.pal = palette_rgb(self.cfg, self.level.palette, name)
+        self.cnames = colour_names(self.cfg, self.level.palette, name)
 
     def _notify(self, msg: str) -> None:
         self.notice = msg
@@ -533,13 +645,28 @@ class Viewer:
                     running = False
                 elif ev.type == pg.MOUSEBUTTONDOWN and ev.button == 1:
                     self.click(ev.pos)
+                elif ev.type == pg.MOUSEBUTTONUP and ev.button == 1:
+                    self.dragging = False
+                elif ev.type == pg.MOUSEMOTION and self.dragging:
+                    self.pan(*ev.rel)
+                elif ev.type == pg.MOUSEWHEEL:
+                    mp = pg.mouse.get_pos()
+                    if self.grid_rect.collidepoint(mp) and ev.y:
+                        self.zoom(self.cfg["grid"]["zoom_step"] ** (1 if ev.y > 0 else -1), mp)
                 elif ev.type == pg.KEYDOWN:
                     if ev.key == pg.K_ESCAPE:
                         running = False
                     elif ev.key == pg.K_SPACE:
                         self.button("pause")
-                    elif ev.key in (pg.K_1, pg.K_2, pg.K_3):
-                        self.button(f"speed{ {pg.K_1: 0, pg.K_2: 1, pg.K_3: 2}[ev.key] }")
+                    elif pg.K_1 <= ev.key <= pg.K_9:
+                        if ev.key - pg.K_1 < len(self.cfg["speed"]["multipliers"]):
+                            self.button(f"speed{ev.key - pg.K_1}")
+                    elif ev.key in (pg.K_EQUALS, pg.K_PLUS, pg.K_KP_PLUS):
+                        self.zoom(self.cfg["grid"]["zoom_step"], pg.mouse.get_pos())
+                    elif ev.key in (pg.K_MINUS, pg.K_KP_MINUS):
+                        self.zoom(1 / self.cfg["grid"]["zoom_step"], pg.mouse.get_pos())
+                    elif ev.key in (pg.K_0, pg.K_KP0):
+                        self.zoom_reset()
                     elif ev.key == pg.K_r:
                         self.button("restart")
                     elif ev.key == pg.K_s:
@@ -547,7 +674,9 @@ class Viewer:
             if smoke_frames:
                 dt = 1.0 / self.cfg["window"]["fps"]
                 if frame == 1:
-                    self.speed_i = 2
+                    self.speed_i = len(self.cfg["speed"]["multipliers"]) - 1
+                    self.zoom(4.0, (300, 300))
+                    self.pan(37, -12)
                 if frame == smoke_frames // 2 - 2:
                     # paused: a block click must not select or swap anything
                     before = (
@@ -580,11 +709,16 @@ class Viewer:
                     self.save(screenshot=True)
                     running = False
             self.step(dt)
+            self.move_needles(dt)
             self.draw()
             pg.display.flip()
             frame += 1
         if any(e["event"] == "swap" for e in self.session) or self.run_dir:
             print(f"session saved to {self.save()}", flush=True)
+
+
+def _mult_label(m: float) -> str:
+    return f"x1/{round(1 / m)}" if m < 1 else f"x{m:g}"
 
 
 def main() -> None:
@@ -604,7 +738,7 @@ def main() -> None:
     pygame.init()
     level = load_level(a.level)
     if a.n:
-        level.grid = {**level.grid, "n": a.n}
+        level.grid = {"type": "hex", "n": a.n}  # rectangular torus N x N
     if a.world:
         kind, size = a.world.split(":")
         level.grid = {

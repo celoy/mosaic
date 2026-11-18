@@ -1,7 +1,7 @@
 {
   "id": "T05",
   "title": "Handedness: make triangles the consumer cannot eat",
-  "grid": { "type": "hex", "n": 64 },
+  "grid": { "type": "hexagon", "side": 74 },
   "palette": 4,
   "reactions": [
     { "shape": "edge",   "in": [0, 3], "out": [0, 0], "rate": 0.15 },

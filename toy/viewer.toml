@@ -8,13 +8,16 @@ fps = 60
 
 [speed]
 base_time_per_s = 1.0     # x1 = this many sim time units per wall second
-multipliers = [1, 4, 16]
+multipliers = [0.25, 1, 4, 16]   # keys 1-4
 frame_budget_ms = 30.0    # max simulation time per frame (x16 may fall behind)
 chunk_attempts = 2048     # attempts between chart samples (partial sweeps)
 
 [lamps]
+# meter beside each equation: needle = firing rate per cell per time unit, log scale
 tau = 1.0                 # smoothing time of the firing rate (sim time units)
-half = 0.02               # firing rate per cell per unit time at which a lamp is half lit
+lo = 1e-4                 # rate at the left end of the dial
+hi = 1.0                  # rate at the right end of the dial
+needle_tau = 0.15         # wall-clock lag of the needle (s), for a smooth swing
 
 [chart]
 window = 60.0             # sim time units shown
@@ -22,9 +25,11 @@ height = 220
 
 [grid]
 border = 0.0              # dark gap between hexes, fraction of the inradius (0 = none)
+zoom_step = 1.25          # mouse wheel or +/- keys; drag the grid to pan; 0 resets
+max_cell_px = 40.0        # largest hex circumradius when zoomed in
 
 [palette]
-default = "chris"         # one of the [palettes] below; switch live from the viewer menu
+default = "teal_coral"        # one of the [palettes] below; switch live from the viewer menu
 show_glyphs = false       # symbols on the equation blocks (toggle in the viewer)
 glyphs = ["circle", "triangle", "square", "diamond", "cross", "ring", "bar", "x"]
 background = "#1E1E24"
@@ -37,3 +42,10 @@ teal_coral = ["#1A535C", "#4ECDC4", "#F7FFF7", "#FF6B6B", "#FFE66D"]   # Chris, 
 okabe_ito = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999"]
 tol_bright = ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"]
 greyscale = []
+
+[palette_names]
+# Names shown in goals ("make dark teal extinct"); palettes without names get generated ones.
+chris = ["lime", "sage", "sand", "mocha", "apricot"]
+teal_coral = ["dark teal", "cyan", "mint", "coral", "gold"]
+okabe_ito = ["orange", "sky blue", "green", "yellow", "blue", "vermilion", "purple", "grey"]
+tol_bright = ["blue", "red", "green", "yellow", "cyan", "purple", "grey"]

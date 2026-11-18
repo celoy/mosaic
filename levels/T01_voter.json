@@ -1,7 +1,7 @@
 {
   "id": "T01",
   "title": "Voter: tip the vote",
-  "grid": { "type": "hex", "n": 64 },
+  "grid": { "type": "hexagon", "side": 74 },
   "palette": 2,
   "reactions": [
     { "shape": "edge", "in": [0, 1], "out": [0, 0], "rate": 1.0 },

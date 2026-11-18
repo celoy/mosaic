@@ -1,7 +1,7 @@
 {
   "id": "T03",
   "title": "Chiral stirring",
-  "grid": { "type": "hex", "n": 64 },
+  "grid": { "type": "hexagon", "side": 74 },
   "palette": 3,
   "reactions": [
     { "shape": "edge",   "in": [0, 1], "out": [0, 0], "rate": 1.0 },

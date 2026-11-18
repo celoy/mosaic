@@ -65,15 +65,29 @@ def hex_pixel_map(g: Graph, size: float, border: float = 0.0) -> np.ndarray:
     return idx
 
 
+def world_centre(g: Graph) -> tuple[float, float]:
+    """Centre of the world's bounding box (unit-circumradius coordinates)."""
+    return (
+        0.5 * float(g.centers[:, 0].min() + g.centers[:, 0].max()),
+        0.5 * float(g.centers[:, 1].min() + g.centers[:, 1].max()),
+    )
+
+
 def view_pixel_map(
-    g: Graph, size: float, width: int, height: int, border: float = 0.0
+    g: Graph,
+    size: float,
+    width: int,
+    height: int,
+    border: float = 0.0,
+    centre: tuple[float, float] | None = None,
 ) -> np.ndarray:
-    """(height, width) cell-index map of a viewport with the world centred in it.
+    """(height, width) cell-index map of a viewport showing the point `centre` (world
+    coordinates, unit circumradius; default the world's centre) at its middle.
 
     Periodic worlds are tiled to the edges of the viewport (each pixel shows the periodic
-    image of its cell); for open worlds pixels outside the world are -1 (background)."""
-    cxw = 0.5 * (g.centers[:, 0].min() + g.centers[:, 0].max())
-    cyw = 0.5 * (g.centers[:, 1].min() + g.centers[:, 1].max())
+    image of its cell), so any centre works; for open worlds pixels outside the world are
+    -1 (background)."""
+    cxw, cyw = world_centre(g) if centre is None else centre
     ys, xs = np.mgrid[0:height, 0:width].astype(float)
     x = (xs + 0.5 - width / 2) / size + cxw
     y = (ys + 0.5 - height / 2) / size + cyw
