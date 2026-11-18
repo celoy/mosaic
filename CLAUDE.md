@@ -31,6 +31,8 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: sandbox has 10 reaction slots (window 1000 px high; equation rows shrink when they do not fit).
 - 2026-11-18: sandbox random start uses only colours 0..n-1 (Start button: left +1, right -1; --start; [sandbox] start_colours = 3); saved levels keep these fractions.
 - 2026-11-18: Chris's 5-colour tournament (S20261118-184837, each colour beats two): grid time-averages match the mean-field point A x* = 0 within 0.015; x*_i depends only on the rates of reactions not involving i; grid coexistence is stable (sd 0.02), shuffled runs lose 2 colours in 5 of 6 runs by t = 400 (tools/tournament.py).
+- 2026-11-18: Chris's 4-cycle with chiral ally swaps (S20261118-190742): the swaps have no measurable effect (level, swaps off and mirrored agree within seed scatter, 4 seeds, t = 600); grid locks x0 = x2, x1 = x3, alliance balance drifts by +-0.015; shuffled lost an alliance in 1 of 4 runs (tools/variants.py).
+- 2026-11-18: Chris's spiral attempt (S20261118-191619: zero-sum RPS + majority vertex invasions + chiral rotation): mean-field focus unstable (2 +- 6.9i, stronger than T04) but patches only a few cells wide, since mobility is missing; adding edge exchange at k = 10 grows the patterns to grid size (S20261118-191619_mobile, to be watched). Sandbox k button now goes up to 10.
 
 ## Deadline and jam
 
