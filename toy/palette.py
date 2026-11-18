@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import colorsys
+import functools
+import itertools
 
 import numpy as np
 
@@ -16,36 +18,94 @@ def names(cfg: dict) -> list[str]:
     return list(cfg["palettes"])
 
 
-UI_SPLIT = 5  # listed palettes with more colours give their darkest and lightest to the UI
+# ---- colour difference (CIE76 in Lab) and colour-vision-deficiency simulation ---------------
+# Machado et al. (2009) severity-1 matrices on linear RGB, recalled (not verified this session).
+CVD = {
+    "deuteranopia": np.array(
+        [
+            [0.367322, 0.860646, -0.227968],
+            [0.280085, 0.672501, 0.047413],
+            [-0.011820, 0.042940, 0.968881],
+        ]
+    ),
+    "protanopia": np.array(
+        [
+            [0.152286, 1.052583, -0.204868],
+            [0.114503, 0.786281, 0.099216],
+            [-0.003882, -0.048116, 1.051998],
+        ]
+    ),
+}
+
+
+def _linear(rgb) -> np.ndarray:
+    c = np.asarray(rgb, dtype=float) / 255
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def _lab(lin: np.ndarray) -> np.ndarray:
+    m = np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]])
+    x, y, z = m @ lin / np.array([0.95047, 1.0, 1.08883])
+    f = [t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116 for t in (x, y, z)]
+    return np.array([116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])])
+
+
+def lab_views(rgb) -> list[np.ndarray]:
+    """Lab coordinates as seen with normal vision, deuteranopia, protanopia."""
+    lin = _linear(rgb)
+    return [_lab(lin)] + [_lab(np.clip(m @ lin, 0, 1)) for m in CVD.values()]
+
+
+def min_delta_e(cols, view: int = 0) -> float:
+    """Smallest CIE76 difference between any two colours (view 0 normal, 1 deut., 2 prot.)."""
+    labs = [lab_views(c)[view] for c in cols]
+    return min(
+        (float(np.linalg.norm(a - b)) for a, b in itertools.combinations(labs, 2)), default=np.inf
+    )
 
 
 def luminance(rgb) -> float:
     """WCAG relative luminance of an sRGB colour (0-255)."""
-    lin = [
-        (v / 255) / 12.92 if v / 255 <= 0.04045 else ((v / 255 + 0.055) / 1.055) ** 2.4 for v in rgb
-    ]
-    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    lin = _linear(rgb)
+    return float(0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2])
 
 
-def _split(cfg: dict, name: str) -> tuple[list[int], tuple | None]:
-    """Indices of the cell colours in the palette list, and (bg, fg) taken from it if the
-    palette is listed in [palette] split_ui and has more than UI_SPLIT colours (darkest ->
-    background, lightest -> text)."""
+@functools.lru_cache(maxsize=256)
+def _best_subset(cols: tuple, n: int, bg: tuple) -> tuple[int, ...]:
+    """Indices (in palette order) of the n colours whose smallest Delta E (normal vision),
+    over all pairs and against the interface background bg, is largest; ties broken by the
+    colour-blind views."""
+    labs = [lab_views(c) for c in cols]
+    lbg = lab_views(bg)
+
+    def score(sub):
+        out = []
+        for v in range(3):
+            pairs = [
+                float(np.linalg.norm(labs[i][v] - labs[j][v]))
+                for i, j in itertools.combinations(sub, 2)
+            ]
+            to_bg = [float(np.linalg.norm(labs[i][v] - lbg[v])) for i in sub]
+            out.append(min(pairs + to_bg))
+        return tuple(out)
+
+    return max(itertools.combinations(range(len(cols)), n), key=score)
+
+
+def _pick(cfg: dict, name: str, n: int) -> list[int]:
+    """Indices of the palette colours used for n cell colours. Palettes listed in
+    [palette] best_subset with more than n colours use their best-separated n colours."""
     cols = [_hex(c) for c in cfg["palettes"][name]]
-    idx = list(range(len(cols)))
-    if len(cols) <= UI_SPLIT or name not in cfg["palette"].get("split_ui", []):
-        return idx, None
-    order = sorted(idx, key=lambda k: luminance(cols[k]))
-    dark, light = order[0], order[-1]
-    return [k for k in idx if k not in (dark, light)], (cols[dark], cols[light])
+    if len(cols) > n >= 2 and name in cfg["palette"].get("best_subset", []):
+        return list(_best_subset(tuple(cols), n, _hex(cfg["palette"]["background"])))
+    return list(range(len(cols)))
 
 
 def ui_colours(cfg: dict, name: str | None = None) -> dict[str, tuple[int, int, int]]:
     """Interface colours: bg, fg (text) and tones mixed between them (mid for secondary
-    text, btn / btn_on for buttons, chart / line for the chart)."""
-    name = name or cfg["palette"]["default"]
-    split = None if name == "greyscale" else _split(cfg, name)[1]
-    bg, fg = split or (_hex(cfg["palette"]["background"]), (235, 235, 240))
+    text, btn / btn_on for buttons, chart / line for the chart). `name` is accepted so a
+    palette could theme the interface later; for now every palette uses the dark default."""
+    bg, fg = _hex(cfg["palette"]["background"]), (235, 235, 240)
 
     def mix(f: float) -> tuple[int, int, int]:
         return tuple(int(round(b + f * (t - b))) for b, t in zip(bg, fg, strict=True))  # type: ignore[return-value]
@@ -69,7 +129,7 @@ def palette_rgb(cfg: dict, n: int, name: str | None = None) -> np.ndarray:
         levels = np.linspace(0.30, 0.95, n) if n > 1 else np.array([0.7])
         return np.array([[int(255 * v)] * 3 for v in levels], dtype=np.uint8)
     allc = [_hex(c) for c in cfg["palettes"][name]]
-    out = [allc[k] for k in _split(cfg, name)[0]][:n]
+    out = [allc[k] for k in _pick(cfg, name, n)][:n]
     extra = n - len(out)
     for k in range(extra):
         r, g, b = colorsys.hsv_to_rgb((k + 0.5) / extra, 0.35, 0.9)
@@ -120,7 +180,7 @@ def colour_names(cfg: dict, n: int, name: str | None = None) -> list[str]:
     if name == "greyscale":
         return [f"grey {k + 1}" for k in range(n)]  # 1 = darkest
     given_all = list(cfg.get("palette_names", {}).get(name, []))
-    keep = _split(cfg, name)[0]
+    keep = _pick(cfg, name, n)
     given = [given_all[k] for k in keep if k < len(given_all)][:n]
     rgb = palette_rgb(cfg, n, name)
     out = given + [_auto_name(rgb[k]) for k in range(len(given), n)]

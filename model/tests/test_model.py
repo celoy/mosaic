@@ -346,3 +346,28 @@ def test_all_reactions_off_is_inert():
     sim.attempts(100)
     sim.sweep(3)
     assert sim.n_elig == 0 and sim.t == 0.0 and sim.counts().tolist() == [32, 32]
+
+
+def test_palette_best_subset():
+    """Long palettes: the n picked colours maximise the smallest Delta E (pairs and
+    background, normal vision), and names follow the picked colours."""
+    import itertools
+    import sys
+    import tomllib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(root / "toy"))
+    from palette import _hex, colour_names, min_delta_e, palette_rgb
+
+    cfg = tomllib.loads((root / "toy" / "viewer.toml").read_text())
+    bg = _hex(cfg["palette"]["background"])
+    for name in cfg["palette"]["best_subset"]:
+        allc = [_hex(c) for c in cfg["palettes"][name]]
+        names_all = cfg["palette_names"][name]
+        n = min(5, len(allc) - 1)
+        got = palette_rgb(cfg, n, name)
+        best = max(min_delta_e(list(s) + [bg]) for s in itertools.combinations(allc, n))
+        assert abs(min_delta_e(list(got) + [bg]) - best) < 1e-9
+        for c, nm in zip(got, colour_names(cfg, n, name), strict=True):
+            assert allc[names_all.index(nm)] == tuple(int(v) for v in c)
