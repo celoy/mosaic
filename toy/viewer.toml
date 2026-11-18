@@ -19,6 +19,21 @@ lo = 1e-4                 # rate at the left end of the dial
 hi = 1.0                  # rate at the right end of the dial
 needle_tau = 0.15         # wall-clock lag of the needle (s), for a smooth swing
 
+[arrows]
+style = "width"           # "width": line 1-5 px by k / k_max; "grey": lighter = faster
+
+[sandbox]
+colours = 5
+slots = 4                 # reaction slots (unused ones are off, k = 0)
+rates = [0, 0.1, 0.2, 0.5, 1, 2]   # values the k button cycles through (0 = off)
+grid = { type = "hexagon", side = 74 }
+reactions = [
+  { shape = "edge", in = [0, 1], out = [0, 0], rate = 1.0 },
+  { shape = "edge", in = [1, 2], out = [1, 1], rate = 1.0 },
+  { shape = "edge", in = [2, 0], out = [2, 2], rate = 1.0 },
+  { shape = "cell", in = [3], out = [4], rate = 0.0 },
+]
+
 [chart]
 window = 60.0             # sim time units shown
 height = 220

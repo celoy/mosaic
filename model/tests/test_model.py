@@ -332,3 +332,17 @@ def test_view_tiling_is_consistent(name: str) -> None:
         assert all(j in nb[i] for i, j in zip(a[m], b[m], strict=True))
     assert len(np.unique(pm[pm >= 0])) == g.n_cells
     assert (pm >= 0).all() == g.periodic
+
+
+def test_all_reactions_off_is_inert():
+    """Rate-0 reactions are switched off: no eligible elements, attempts return at once."""
+    from mosaic_model.graph import hex_torus
+    from mosaic_model.reactions import Reaction, ReactionSet
+    from mosaic_model.sim import Sim
+
+    rs = ReactionSet([Reaction("edge", [0, 1], [0, 0], 0.0)], 2)
+    assert rs.shapes_used() == []
+    sim = Sim(hex_torus(8), rs, [0, 1] * 32, seed=1)
+    sim.attempts(100)
+    sim.sweep(3)
+    assert sim.n_elig == 0 and sim.t == 0.0 and sim.counts().tolist() == [32, 32]

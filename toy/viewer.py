@@ -10,6 +10,13 @@ Zoom: mouse wheel or +/- (about the cursor), drag the grid to pan, 0 to see the 
 --world torus:64 | open:64 | hextorus:37 | hexagon:37 overrides the world shape
 (hextorus = hexagon with opposite sides glued; hexagon = open hexagon).
 Swaps are logged to runs/viewer/<level>_<time>/session.json.
+
+Sandbox (design tool): python toy/viewer.py --sandbox [level.json] [--colours 5]
+  Mode: edit   click a block to paint it with the chosen colour, right-click to lock it,
+               click the shape / k buttons of a slot to change it (right-click: backwards;
+               k = 0 switches the slot off). Works while running or paused.
+  Mode: play   the normal rules (swap two unlocked blocks while running).
+  Random start draws a new uniform random mosaic; Save level writes levels/sandbox/S*.json.
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ import os
 import sys
 import time
 import tomllib
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +40,7 @@ sys.path.insert(0, str(ROOT / "toy"))
 from mosaic_model import GoalTracker, Level, Sim, load_level, make_sim  # noqa: E402
 from mosaic_model.graph import SQRT3  # noqa: E402
 from mosaic_model.raster import fit_size, render_rgb, view_pixel_map, world_centre  # noqa: E402
-from mosaic_model.reactions import ARITY, Block  # noqa: E402
+from mosaic_model.reactions import ARITY, Block, Reaction  # noqa: E402
 from palette import colour_names, glyphs, names, palette_rgb  # noqa: E402
 
 RB = 16.0  # circumradius of an equation block (hexagon), px
@@ -44,6 +52,9 @@ METER_FACE = (232, 222, 190)
 METER_INK = (40, 36, 30)
 NEEDLE = (200, 40, 30)
 EQ_DX = 64  # x offset of the first equation block from the panel edge (room for the meter)
+SHAPE_CYCLE = [("cell", True), ("edge", True), ("vertex", True), ("vertex", False)]
+SHAPE_LABEL = {("cell", True): "cell", ("edge", True): "edge", ("vertex", True): "vertex cw"}
+SHAPE_LABEL[("vertex", False)] = "vertex +-"
 
 
 def load_cfg() -> dict:
@@ -51,11 +62,17 @@ def load_cfg() -> dict:
 
 
 class Viewer:
-    def __init__(self, level: Level, cfg: dict, seed: int | None, shuffled: bool) -> None:
+    def __init__(
+        self, level: Level, cfg: dict, seed: int | None, shuffled: bool, sandbox: bool = False
+    ) -> None:
         import pygame
 
         self.pg = pygame
         self.level = level
+        self.sandbox = sandbox
+        self.edit = sandbox  # sandbox starts in edit mode
+        self.paint = 0  # colour painted in edit mode
+        self.arrow_style = cfg["arrows"]["style"]
         self.cfg = cfg
         self.shuffled = shuffled
         self.seed = level.start.get("seed", 0) if seed is None else seed
@@ -101,9 +118,10 @@ class Viewer:
         if not first:
             self.restarts += 1
             self.session.append({"event": "restart", "wall": time.time()})
+        keep = self.sandbox and hasattr(self, "sim")  # sandbox restarts keep the edits
         self.sim = Sim(
             self.sim0.graph,
-            self.level.reaction_set(),
+            self.sim.reactions.copy() if keep else self.level.reaction_set(),
             self.start_cols,
             seed=self.seed + 1 + 7919 * self.restarts,
             shuffled=self.shuffled,
@@ -184,8 +202,8 @@ class Viewer:
     def step(self, dt_wall: float) -> None:
         """Advance base_time_per_s * multiplier sim time units per wall second, in chunks of
         attempts (partial sweeps), within a per-frame time budget."""
-        if self.paused:
-            return
+        if self.paused or self.sim.n_elig == 0 or self.sim.K <= 0:
+            return  # paused, or nothing can fire (every reaction off)
         sp = self.cfg["speed"]
         sim = self.sim
         rate = sp["base_time_per_s"] * sp["multipliers"][self.speed_i]
@@ -277,6 +295,7 @@ class Viewer:
         for key, text, w in (
             ("palette", f"Palette: {self.palette_name}", 170),
             ("glyphs", f"Symbols: {'on' if self.show_glyphs else 'off'}", 110),
+            ("arrows", f"Arrows: {self.arrow_style}", 120),
         ):
             r = pg.Rect(x, y2, w, 26)
             pg.draw.rect(self.screen, (50, 50, 60), r, border_radius=5)
@@ -285,12 +304,54 @@ class Viewer:
             self.screen.blit(t, t.get_rect(center=r.center))
             self.buttons[key] = r
             x += w + 8
+        if self.sandbox:
+            y2 = self._draw_sandbox_bar(y2 + 32)
         x = self.panel_x
         if self.notice and time.time() < self.notice_until:
             self._text(self.notice, (x, y2 + 32), self.small, (240, 180, 90))
-        elif self.paused:
+        elif self.paused and not self.edit:
             self._text("paused: no switching", (x, y2 + 32), self.small, GREY)
+        elif self.sim.n_elig == 0 or self.sim.K <= 0:
+            self._text("every reaction is off (k = 0)", (x, y2 + 32), self.small, GREY)
         return y2 + 50
+
+    def _button(self, key: str, text: str, x: float, y: float, w: int, active=False):
+        pg = self.pg
+        r = pg.Rect(x, y, w, 26)
+        pg.draw.rect(self.screen, (80, 80, 96) if active else (50, 50, 60), r, border_radius=5)
+        pg.draw.rect(self.screen, GREY, r, 1, border_radius=5)
+        t = self.font.render(text, True, WHITE)
+        self.screen.blit(t, t.get_rect(center=r.center))
+        self.buttons[key] = r
+        return r
+
+    def _draw_sandbox_bar(self, y: int) -> int:
+        """Sandbox rows: mode, random start, save; in edit mode, the paint colours."""
+        x = self.panel_x
+        for key, text, w in (
+            ("mode", f"Mode: {'edit' if self.edit else 'play'}", 110),
+            ("random", "Random start", 120),
+            ("savelevel", "Save level", 100),
+        ):
+            self._button(key, text, x, y, w, active=(key == "mode" and self.edit))
+            x += w + 8
+        if not self.edit:
+            return y
+        y += 32
+        x = self.panel_x
+        self._text("paint:", (x, y + 6), self.font, GREY)
+        x += 50
+        pg = self.pg
+        for c in range(self.level.palette):
+            cc = (x + 13, y + 13)
+            if c == self.paint:
+                pg.draw.polygon(self.screen, WHITE, self._hex_points(cc, 15))
+                pg.draw.polygon(self.screen, self.bg, self._hex_points(cc, 13))
+            pg.draw.polygon(self.screen, self.pal[c], self._hex_points(cc, 11))
+            self.buttons[f"paint{c}"] = pg.Rect(x, y, 26, 26)
+            x += 30
+        self._text("click: paint   right-click: lock", (x + 10, y + 7), self.small, GREY)
+        return y
 
     def _draw_menu(self) -> None:
         """Palette dropdown, drawn last (on top); each entry shows a swatch."""
@@ -393,7 +454,6 @@ class Viewer:
             self._draw_glyph(self.glyphs[col], c, DARK)
 
     def _draw_equations(self, y: int) -> int:
-        pg = self.pg
         cents, rows = self._block_layout(y)
         self.block_centres = cents
         w = SQRT3 * RB * GAP
@@ -402,30 +462,45 @@ class Viewer:
             lv = float(self.lamps[i])
             cy = ry + h // 2
             self._draw_meter(self.panel_x + 2, cy, float(self.needles[i]))
-            # arrow: thin line + open chevrons; 1-3 chevrons for slow / medium / fastest k
             ax = self.panel_x + EQ_DX + 2 * RB + w + 8
             kmax = max(q.rate for q in self.sim.reactions.reactions) or 1.0
-            frac = r.rate / kmax
-            n_chev = 3 if frac > 0.75 else (2 if frac > 0.4 else 1)
-            ac = (200, 200, 210)
-            tip = ax + 42
-            pg.draw.line(self.screen, ac, (ax, cy), (tip - 1, cy), 2)
-            for k in range(n_chev):
-                tx = tip - 6 * k
-                pg.draw.aalines(
-                    self.screen, ac, False, [(tx - 7, cy - 6), (tx, cy), (tx - 7, cy + 6)]
-                )
-                pg.draw.aalines(
-                    self.screen, ac, False, [(tx - 8, cy - 6), (tx - 1, cy), (tx - 8, cy + 6)]
-                )
+            self._draw_arrow(ax, cy, r.rate / kmax)
             for b_, c in cents.items():
                 if b_[0] == i:
                     self._draw_block(b_, c)
+            xi = self.panel_x + EQ_DX + 4 * w + 90
+            if self.sandbox and self.edit:
+                self._button(f"shape{i}", SHAPE_LABEL[(r.shape, r.chiral)], xi, cy - 13, 76)
+                self._button(
+                    f"rate{i}", "off" if r.rate == 0 else f"k={r.rate:g}", xi + 82, cy - 13, 58
+                )
+                continue
             info = f"k={r.rate:g}  {lv:.3f}"
             if r.shape == "vertex":
                 info += "  cw only" if r.chiral else "  either hand"
-            self._text(info, (self.panel_x + EQ_DX + 4 * w + 90, cy - 7), self.small, GREY)
+            self._text(info, (xi, cy - 7), self.small, GREY)
         return rows[-1][1] + rows[-1][2] + 14 if rows else y
+
+    def _draw_arrow(self, ax: float, cy: float, frac: float) -> None:
+        """Reaction arrow, 42 px; the head is the same for every reaction. Rate k / k_max:
+        "width" style: line width 1-5 px; "grey" style: three greys, lighter = faster.
+        A switched-off reaction (k = 0) gets a dotted dark line."""
+        pg = self.pg
+        tip = ax + 42
+        if frac <= 0:
+            for x in range(int(ax), int(tip), 6):
+                pg.draw.line(self.screen, (80, 80, 90), (x, cy), (x + 2, cy), 2)
+            return
+        if self.arrow_style == "grey":
+            col = (
+                (235, 235, 240) if frac > 0.75 else (160, 160, 170) if frac > 0.4 else (95, 95, 105)
+            )
+            width = 3
+        else:
+            col = (215, 215, 222)
+            width = 1 + round(4 * frac)
+        pg.draw.line(self.screen, col, (ax, cy), (tip - 8, cy), width)
+        pg.draw.polygon(self.screen, col, [(tip, cy), (tip - 11, cy - 6), (tip - 11, cy + 6)])
 
     def _draw_meter(self, x: float, cy: float, f: float) -> None:
         """Small VU-style dial at (x, cy - 14), 52 x 30 px: log firing rate, one tick per
@@ -508,6 +583,8 @@ class Viewer:
         for f in self.level.fail:
             yy += self._draw_segments(self._goal_segments(f, "fail if:", fail=True), x, yy, GREY)
         help_ = "click 2 blocks to swap | wheel zoom, drag pan, 0 reset | spc 1-4 R S"
+        if self.sandbox and self.edit:
+            help_ = "edit: paint blocks, right-click lock, shape/k buttons | Mode: play to swap"
         self._text(help_, (x, self.screen.get_height() - 22), self.small, GREY)
 
     def _goal_segments(self, g: dict, prefix: str, fail: bool = False) -> list:
@@ -556,7 +633,7 @@ class Viewer:
         self.screen.blit(s, r)
 
     # ---- input --------------------------------------------------------------------------------
-    def click(self, pos) -> None:
+    def click(self, pos, button: int = 1) -> None:
         if self.menu_open:
             for key, r in self.buttons.items():
                 if key.startswith("pal:") and r.collidepoint(pos):
@@ -566,10 +643,10 @@ class Viewer:
             return
         for key, r in self.buttons.items():
             if not key.startswith("pal:") and r.collidepoint(pos):
-                self.button(key)
+                self.button(key, -1 if button == 3 else 1)
                 return
         if self.grid_rect.collidepoint(pos):
-            self.dragging = True
+            self.dragging = button == 1
             return
         hit = None
         for b, c in getattr(self, "block_centres", {}).items():
@@ -578,6 +655,14 @@ class Viewer:
                 break
         if hit is None:
             self.selected = None
+            return
+        if self.sandbox and self.edit:
+            if button == 3:
+                self.toggle_lock(hit)
+            else:
+                self.edit_block(hit, self.paint)
+            return
+        if button != 1:
             return
         if self.paused:
             self._notify("paused: press Play to switch blocks")
@@ -593,6 +678,87 @@ class Viewer:
             self.swap(self.selected, hit)
             self.selected = None
 
+    # ---- sandbox edits ------------------------------------------------------------------------
+    def _edited(self, what: str, **kw) -> None:
+        self.sim.rebuild()
+        self.selected = None
+        self.session.append({"event": "edit", "what": what, "t": self.sim.t, **kw})
+
+    def edit_block(self, b: Block, c: int) -> None:
+        self.sim.reactions._set(b, c)
+        self._edited("paint", block=b, colour=c)
+
+    def toggle_lock(self, b: Block) -> None:
+        lk = self.sim.reactions.locked
+        lk.symmetric_difference_update({b})
+        self._edited("lock", block=b, locked=b in lk)
+
+    def cycle_shape(self, i: int, d: int) -> None:
+        """Next (d = 1) or previous shape of slot i, keeping its colours where possible;
+        the slot's locks are cleared."""
+        rs = self.sim.reactions
+        r = rs.reactions[i]
+        k = (SHAPE_CYCLE.index((r.shape, r.chiral)) + d) % len(SHAPE_CYCLE)
+        shape, chiral = SHAPE_CYCLE[k]
+        m = ARITY[shape]
+
+        def fit(cols: list[int]) -> list[int]:
+            return (cols + [cols[-1]] * 3)[:m]
+
+        rs.reactions[i] = Reaction(shape, fit(r.inp), fit(r.out), r.rate, chiral)
+        rs.locked = {b for b in rs.locked if b[0] != i}
+        self._edited("shape", slot=i, shape=shape, chiral=chiral)
+
+    def cycle_rate(self, i: int, d: int) -> None:
+        rates = self.cfg["sandbox"]["rates"]
+        r = self.sim.reactions.reactions[i]
+        k = min(range(len(rates)), key=lambda j: abs(rates[j] - r.rate))
+        r.rate = float(rates[(k + d) % len(rates)])
+        self._edited("rate", slot=i, rate=r.rate)
+
+    def random_start(self) -> None:
+        """New uniform random mosaic (new seed), current reactions kept; time restarts."""
+        self.seed += 1
+        rng = np.random.default_rng(self.seed)
+        self.start_cols = rng.integers(0, self.level.palette, self.sim0.graph.n_cells).tolist()
+        self.reset()
+
+    def save_level(self, folder: Path | None = None) -> Path:
+        """Write the current reactions (slots with k = 0 dropped) and locks as a level."""
+        rs = self.sim.reactions
+        keep = [i for i, r in enumerate(rs.reactions) if r.rate > 0]
+        new_index = {i: j for j, i in enumerate(keep)}
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        n = self.level.palette
+        d = {
+            "id": f"S{stamp}",
+            "title": "sandbox",
+            "grid": self.level.grid,
+            "palette": n,
+            "reactions": [
+                {
+                    "shape": r.shape,
+                    "in": r.inp,
+                    "out": r.out,
+                    "rate": r.rate,
+                    **({"chiral": r.chiral} if r.shape == "vertex" else {}),
+                }
+                for r in (rs.reactions[i] for i in keep)
+            ],
+            "locked": sorted([new_index[b[0]], b[1], b[2]] for b in rs.locked if b[0] in new_index),
+            "start": {"seed": self.seed, "fractions": [round(1 / n, 6)] * n, "burn_in_sweeps": 300},
+            "goals": [],
+            "fail": [],
+            "meta": {"from": "sandbox", "source": str(self.level.path or "")},
+        }
+        folder = folder or ROOT / "levels" / "sandbox"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{d['id']}.json"
+        path.write_text(json.dumps(d, indent=1))
+        self._notify(f"saved {path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")
+        print(f"saved level {path}", flush=True)
+        return path
+
     def set_palette(self, name: str) -> None:
         self.palette_name = name
         self.pal = palette_rgb(self.cfg, self.level.palette, name)
@@ -602,8 +768,23 @@ class Viewer:
         self.notice = msg
         self.notice_until = time.time() + 2.0
 
-    def button(self, key: str) -> None:
-        if key == "pause":
+    def button(self, key: str, d: int = 1) -> None:
+        if key.startswith("shape"):
+            self.cycle_shape(int(key[5:]), d)
+        elif key.startswith("rate"):
+            self.cycle_rate(int(key[4:]), d)
+        elif key.startswith("paint"):
+            self.paint = int(key[5:])
+        elif key == "mode":
+            self.edit = not self.edit
+            self.selected = None
+        elif key == "random":
+            self.random_start()
+        elif key == "savelevel":
+            self.save_level()
+        elif key == "arrows":
+            self.arrow_style = "grey" if self.arrow_style == "width" else "width"
+        elif key == "pause":
             self.paused = not self.paused
             if self.paused:
                 self.selected = None
@@ -633,6 +814,29 @@ class Viewer:
             return p
         return self.run_dir
 
+    def _smoke_sandbox(self) -> None:
+        """Headless checks of the sandbox edits (run once by --smoke)."""
+        rs = self.sim.reactions
+        self.draw()
+        self.click(self.buttons["paint2"].center)
+        b = (0, "out", 0)
+        self.click(self.block_centres[b])
+        assert rs.get(b) == 2 and self.paint == 2
+        self.click(self.block_centres[b], 3)
+        assert b in rs.locked
+        self.click(self.buttons["shape0"].center)  # edge -> vertex cw: lock cleared
+        assert rs.reactions[0].shape == "vertex" and b not in rs.locked
+        self.click(self.buttons["shape0"].center, 3)  # back to edge
+        self.click(self.buttons["rate3"].center)  # off -> first positive rate
+        assert rs.reactions[3].rate > 0
+        self.click(self.block_centres[(0, "in", 1)], 3)
+        p = self.save_level(self.save())  # into the run folder, not levels/
+        lv = load_level(p)
+        assert len(lv.reactions) == sum(r.rate > 0 for r in rs.reactions)
+        assert lv.locked == [[0, "in", 1]]
+        self.random_start()
+        print(f"smoke: sandbox edits OK ({p.name})", flush=True)
+
     def loop(self, smoke_frames: int = 0) -> None:
         pg = self.pg
         clock = pg.time.Clock()
@@ -643,8 +847,8 @@ class Viewer:
             for ev in pg.event.get():
                 if ev.type == pg.QUIT:
                     running = False
-                elif ev.type == pg.MOUSEBUTTONDOWN and ev.button == 1:
-                    self.click(ev.pos)
+                elif ev.type == pg.MOUSEBUTTONDOWN and ev.button in (1, 3):
+                    self.click(ev.pos, ev.button)
                 elif ev.type == pg.MOUSEBUTTONUP and ev.button == 1:
                     self.dragging = False
                 elif ev.type == pg.MOUSEMOTION and self.dragging:
@@ -677,6 +881,10 @@ class Viewer:
                     self.speed_i = len(self.cfg["speed"]["multipliers"]) - 1
                     self.zoom(4.0, (300, 300))
                     self.pan(37, -12)
+                if self.sandbox and frame == 3:
+                    self._smoke_sandbox()
+                if self.sandbox and frame == smoke_frames // 2 - 2:
+                    self.button("mode")  # play mode for the swap checks below
                 if frame == smoke_frames // 2 - 2:
                     # paused: a block click must not select or swap anything
                     before = (
@@ -717,13 +925,40 @@ class Viewer:
             print(f"session saved to {self.save()}", flush=True)
 
 
+def sandbox_level(cfg: dict, colours: int | None) -> Level:
+    """Fresh sandbox: the [sandbox] defaults of viewer.toml, uniform random start."""
+    sb = cfg["sandbox"]
+    n = colours or sb["colours"]
+    return Level(
+        id="sandbox",
+        grid=dict(sb["grid"]),
+        palette=n,
+        reactions=[dict(r) for r in sb["reactions"]],
+        locked=[],
+        start={"seed": 1, "fractions": [1 / n] * n, "burn_in_sweeps": 0},
+        goals=[],
+        title="design tool",
+    )
+
+
+def pad_slots(level: Level, cfg: dict, colours: int | None) -> Level:
+    """Sandbox on a level: at least [sandbox] slots reactions (extra ones off, k = 0);
+    --colours can widen the palette."""
+    level.palette = max(level.palette, colours or 0)
+    off = {"shape": "cell", "in": [0], "out": [0], "rate": 0.0}
+    level.reactions = level.reactions + [off] * (cfg["sandbox"]["slots"] - len(level.reactions))
+    return level
+
+
 def _mult_label(m: float) -> str:
     return f"x1/{round(1 / m)}" if m < 1 else f"x{m:g}"
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("level", type=Path)
+    ap.add_argument("level", type=Path, nargs="?", help="level JSON (optional with --sandbox)")
+    ap.add_argument("--sandbox", action="store_true", help="design tool: edit the reactions")
+    ap.add_argument("--colours", type=int, default=None, help="sandbox: number of colours")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--shuffled", action="store_true", help="well-mixed control")
     ap.add_argument("--n", type=int, default=None, help="override the grid size")
@@ -736,7 +971,12 @@ def main() -> None:
     import pygame
 
     pygame.init()
-    level = load_level(a.level)
+    cfg = load_cfg()
+    if a.level is None and not a.sandbox:
+        ap.error("give a level, or --sandbox")
+    level = load_level(a.level) if a.level else sandbox_level(cfg, a.colours)
+    if a.sandbox:
+        level = pad_slots(level, cfg, a.colours)
     if a.n:
         level.grid = {"type": "hex", "n": a.n}  # rectangular torus N x N
     if a.world:
@@ -747,12 +987,11 @@ def main() -> None:
             "hextorus": {"type": "hexagon", "side": int(size)},
             "hexagon": {"type": "hexagon", "side": int(size), "periodic": False},
         }[kind]
-    cfg = load_cfg()
     if a.palette:
         if a.palette not in cfg["palettes"]:
             ap.error(f"unknown palette {a.palette!r}; choose from {list(cfg['palettes'])}")
         cfg["palette"]["default"] = a.palette
-    v = Viewer(level, cfg, a.seed, a.shuffled)
+    v = Viewer(level, cfg, a.seed, a.shuffled, sandbox=a.sandbox)
     v.loop(a.smoke)
     pygame.quit()
 

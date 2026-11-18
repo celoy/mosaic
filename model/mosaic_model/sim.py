@@ -95,7 +95,10 @@ class Sim:
 
     def attempts(self, n: int) -> None:
         """Perform n attempts; sim time advances by 1 / (K * n_elig) per attempt. Sweep
-        boundaries (sweep counter, per-sweep shuffling) are honoured inside the call."""
+        boundaries (sweep counter, per-sweep shuffling) are honoured inside the call.
+        With no eligible element (every reaction off) nothing happens and time stands still."""
+        if self.n_elig == 0:
+            return
         while n > 0:
             chunk = min(n, self.n_elig - self._pos)
             if self.K > 0 and chunk > 0:

@@ -118,7 +118,8 @@ class ReactionSet:
         return sorted(self.get(b) for b in self.blocks())
 
     def shapes_used(self) -> list[str]:
-        return [s for s in SHAPES if any(r.shape == s for r in self.reactions)]
+        """Shapes carrying at least one reaction with a positive rate (rate 0 = switched off)."""
+        return [s for s in SHAPES if any(r.shape == s and r.rate > 0 for r in self.reactions)]
 
     # ---- lookup tables ------------------------------------------------------------------
     def tables(self) -> dict[str, list[Entry | None]]:
