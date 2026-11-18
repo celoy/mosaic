@@ -1,0 +1,17 @@
+{
+  "id": "T03",
+  "title": "Chiral stirring",
+  "grid": { "type": "hex", "n": 64 },
+  "palette": 3,
+  "reactions": [
+    { "shape": "edge",   "in": [0, 1], "out": [0, 0], "rate": 1.0 },
+    { "shape": "edge",   "in": [1, 2], "out": [1, 1], "rate": 1.0 },
+    { "shape": "edge",   "in": [2, 0], "out": [2, 2], "rate": 1.0 },
+    { "shape": "vertex", "in": [0, 1, 2], "out": [2, 0, 1], "rate": 0.3, "chiral": true }
+  ],
+  "locked": [[0, "in", 0]],
+  "start": { "seed": 7, "fractions": [0.34, 0.33, 0.33], "burn_in_sweeps": 300 },
+  "goals": [ { "type": "extinct", "color": 2 } ],
+  "fail": [ ],
+  "meta": { "note": "Phase 1 test level (the brief's L04 example). Solvability not checked yet." }
+}

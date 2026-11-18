@@ -1,0 +1,15 @@
+{
+  "id": "T01",
+  "title": "Voter: tip the vote",
+  "grid": { "type": "hex", "n": 64 },
+  "palette": 2,
+  "reactions": [
+    { "shape": "edge", "in": [0, 1], "out": [0, 0], "rate": 1.0 },
+    { "shape": "edge", "in": [1, 0], "out": [1, 1], "rate": 1.0 }
+  ],
+  "locked": [[0, "in", 0], [0, "in", 1], [1, "in", 0], [1, "in", 1]],
+  "start": { "seed": 7, "fractions": [0.5, 0.5], "burn_in_sweeps": 200 },
+  "goals": [ { "type": "extinct", "color": 1 } ],
+  "fail": [ ],
+  "meta": { "note": "Phase 1 test level (voter model). Solvability not checked yet." }
+}

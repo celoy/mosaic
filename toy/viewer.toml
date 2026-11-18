@@ -1,0 +1,26 @@
+# Parameters for the pygame viewer (toy/viewer.py) and PNG snapshots (tools/science.py).
+
+[window]
+width = 1280
+height = 820
+grid_width = 780          # pixels available for the hex grid (left column)
+fps = 60
+
+[speed]
+base_sweeps_per_s = 4.0   # x1; keys 1/2/3 give x1, x4, x16
+multipliers = [1, 4, 16]
+frame_budget_ms = 30.0    # max simulation time per frame (x16 may fall behind)
+
+[lamps]
+tau = 1.0                 # smoothing time of the firing rate (sim time units)
+half = 0.02               # firing rate per cell per unit time at which a lamp is half lit
+
+[chart]
+window = 60.0             # sim time units shown
+height = 220
+
+[palette]
+# Okabe-Ito (recalled, to be checked): orange, sky blue, bluish green, reddish purple
+colours = ["#E69F00", "#56B4E9", "#009E73", "#CC79A7"]
+glyphs = ["circle", "triangle", "square", "diamond"]
+background = "#1E1E24"

@@ -13,9 +13,10 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 
 ## Status
 
-- CURRENT: Phase 0
+- CURRENT: Phase 1
 - 2026-11-18: brief written; nothing built yet.
 - 2026-11-18: Phase 0 done: repo celoy/mosaic (MIT), .venv + pytest, Godot 4.7.2 web benchmark ≈ 890 sweeps/s at 64 × 64 in headless Chrome (docs/phase0_benchmark.md); grid size 64 × 64 proposed. Waiting for go on Phase 1.
+- 2026-11-18: Phase 1 built (grid 64 × 64 confirmed by Chris): mosaic_model, tests 1–7 pass, science checks 1–4 run (docs/phase1_notes.md), pygame viewer, test levels T01–T03. Gate B pending: Chris plays the viewer.
 
 ## Deadline and jam
 
