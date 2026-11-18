@@ -33,6 +33,7 @@ background = "#1E1E24"
 # Lists of hex colours. Levels with more colours than listed get extra pastel hues.
 # "greyscale" is generated for any number of colours.
 chris = ["#CBE896", "#AAC0AA", "#FCDFA6", "#A18276", "#F4B886"]   # coolors.co, 2026-11-18
+teal_coral = ["#1A535C", "#4ECDC4", "#F7FFF7", "#FF6B6B", "#FFE66D"]   # Chris, 2026-11-18
 okabe_ito = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999"]
 tol_bright = ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"]
 greyscale = []

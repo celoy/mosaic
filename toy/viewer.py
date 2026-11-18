@@ -593,6 +593,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--shuffled", action="store_true", help="well-mixed control")
     ap.add_argument("--n", type=int, default=None, help="override the grid size")
+    ap.add_argument("--palette", default=None, help="palette name from toy/viewer.toml")
     ap.add_argument("--world", default=None, help="torus:N | open:N | hextorus:S | hexagon:S")
     ap.add_argument("--smoke", type=int, default=0, help="headless: run N frames, save PNG")
     a = ap.parse_args()
@@ -612,7 +613,12 @@ def main() -> None:
             "hextorus": {"type": "hexagon", "side": int(size)},
             "hexagon": {"type": "hexagon", "side": int(size), "periodic": False},
         }[kind]
-    v = Viewer(level, load_cfg(), a.seed, a.shuffled)
+    cfg = load_cfg()
+    if a.palette:
+        if a.palette not in cfg["palettes"]:
+            ap.error(f"unknown palette {a.palette!r}; choose from {list(cfg['palettes'])}")
+        cfg["palette"]["default"] = a.palette
+    v = Viewer(level, cfg, a.seed, a.shuffled)
     v.loop(a.smoke)
     pygame.quit()
 
