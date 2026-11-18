@@ -87,6 +87,9 @@ class Viewer:
         self.glyphs = glyphs(cfg, level.palette)
         self.show_glyphs = bool(pal.get("show_glyphs", False))
         self.menu_open = False
+        self.rb = RB  # block radius, shrunk by _fit_rows when many slots do not fit
+        self.row_gap = 10.0
+        self.row_scale = 1.0
 
         t0 = time.perf_counter()
         print(f"burn-in: {level.start.get('burn_in_sweeps', 0)} sweeps ...", flush=True)
@@ -313,9 +316,9 @@ class Viewer:
             self._text("every reaction is off (k = 0)", (x, y2 + 32), self.small, self.ui["mid"])
         return y2 + 50
 
-    def _button(self, key: str, text: str, x: float, y: float, w: int, active=False):
+    def _button(self, key: str, text: str, x: float, y: float, w: int, active=False, h=26):
         pg = self.pg
-        r = pg.Rect(x, y, w, 26)
+        r = pg.Rect(x, y, w, h)
         pg.draw.rect(
             self.screen, self.ui["btn_on"] if active else self.ui["btn"], r, border_radius=5
         )
@@ -409,27 +412,28 @@ class Viewer:
         2 (lower left)."""
         cents: dict[Block, tuple[float, float]] = {}
         rows = []
-        w = SQRT3 * RB * GAP  # centre spacing of neighbours
-        x_in = self.panel_x + EQ_DX + RB
+        rb = self.rb
+        w = SQRT3 * rb * GAP  # centre spacing of neighbours
+        x_in = self.panel_x + EQ_DX + rb
         x_out = x_in + 2 * w + 60
         for i, r in enumerate(self.sim.reactions.reactions):
             m = ARITY[r.shape]
-            h = int(2 * RB + (1.5 * RB * GAP if r.shape == "vertex" else 0))
-            cy0 = y + RB
+            h = int(2 * rb + (1.5 * rb * GAP if r.shape == "vertex" else 0))
+            cy0 = y + rb
             for side, xs in (("in", x_in), ("out", x_out)):
                 for p in range(m):
                     if r.shape == "vertex":
-                        dx, dy = [(w / 2, 0), (w, 1.5 * RB * GAP), (0, 1.5 * RB * GAP)][p]
+                        dx, dy = [(w / 2, 0), (w, 1.5 * rb * GAP), (0, 1.5 * rb * GAP)][p]
                     else:
                         dx, dy = p * w, 0
                     cents[(i, side, p)] = (xs + dx, cy0 + dy)
             rows.append((i, y, h))
-            y += h + 10
+            y += h + int(self.row_gap)
         return cents, rows
 
     def _draw_glyph(self, kind: str, c: tuple[float, float], col) -> None:
         pg = self.pg
-        s = RB * 0.42
+        s = self.rb * 0.42
         x, y = c
         if kind == "circle":
             pg.draw.circle(self.screen, col, c, s)
@@ -461,27 +465,40 @@ class Viewer:
         rs = self.sim.reactions
         col = rs.get(b)
         if b == self.selected:  # white ring with a gap: visible on any block colour
-            pg.draw.polygon(self.screen, self.ui["fg"], self._hex_points(c, RB + 7))
-            pg.draw.polygon(self.screen, self.bg, self._hex_points(c, RB + 4))
+            pg.draw.polygon(self.screen, self.ui["fg"], self._hex_points(c, self.rb + 7))
+            pg.draw.polygon(self.screen, self.bg, self._hex_points(c, self.rb + 4))
         locked = b in rs.locked
         if locked:  # a fixed block sits in a grey frame, like a tile set in the panel
-            pg.draw.polygon(self.screen, self.ui["mid"], self._hex_points(c, RB + 3))
-        self._swatch(c, RB, col)
+            pg.draw.polygon(self.screen, self.ui["mid"], self._hex_points(c, self.rb + 3))
+        self._swatch(c, self.rb, col)
         if locked:
-            pg.draw.polygon(self.screen, DARK, self._hex_points(c, RB), 2)
+            pg.draw.polygon(self.screen, DARK, self._hex_points(c, self.rb), 2)
         if self.show_glyphs:
             self._draw_glyph(self.glyphs[col], c, DARK)
 
+    def _fit_rows(self, y: int) -> None:
+        """Shrink the equation rows (block radius, gap, meter) when all the slots do not fit
+        between y and the chart; never below half size."""
+        reacts = self.sim.reactions.reactions
+        nat = sum(2 * RB + (1.5 * RB * GAP if r.shape == "vertex" else 0) + 10 for r in reacts)
+        n_lines = len(self.level.goals) + len(self.level.fail)
+        below = self.cfg["chart"]["height"] + 20 + 22 * n_lines + 34
+        avail = self.screen.get_height() - y - below
+        s = min(1.0, max(0.5, avail / nat)) if nat > 0 else 1.0
+        self.rb, self.row_gap, self.row_scale = RB * s, max(4.0, 10.0 * s), s
+
     def _draw_equations(self, y: int) -> int:
+        self._fit_rows(y)
         cents, rows = self._block_layout(y)
         self.block_centres = cents
-        w = SQRT3 * RB * GAP
+        s = self.row_scale
+        w = SQRT3 * self.rb * GAP
         for i, ry, h in rows:
             r = self.sim.reactions.reactions[i]
             lv = float(self.lamps[i])
             cy = ry + h // 2
-            self._draw_meter(self.panel_x + 2, cy, float(self.needles[i]))
-            ax = self.panel_x + EQ_DX + 2 * RB + w + 8
+            self._draw_meter(self.panel_x + 2, cy, float(self.needles[i]), s)
+            ax = self.panel_x + EQ_DX + 2 * self.rb + w + 8
             kmax = max(q.rate for q in self.sim.reactions.reactions) or 1.0
             self._draw_arrow(ax, cy, r.rate / kmax)
             for b_, c in cents.items():
@@ -489,16 +506,17 @@ class Viewer:
                     self._draw_block(b_, c)
             xi = self.panel_x + EQ_DX + 4 * w + 90
             if self.sandbox and self.edit:
-                self._button(f"shape{i}", SHAPE_LABEL[(r.shape, r.chiral)], xi, cy - 13, 76)
-                self._button(
-                    f"rate{i}", "off" if r.rate == 0 else f"k={r.rate:g}", xi + 82, cy - 13, 58
-                )
+                bh = int(min(26, 2 * self.rb + self.row_gap - 2))
+                lab = SHAPE_LABEL[(r.shape, r.chiral)]
+                self._button(f"shape{i}", lab, xi, cy - bh // 2, 76, h=bh)
+                k = "off" if r.rate == 0 else f"k={r.rate:g}"
+                self._button(f"rate{i}", k, xi + 82, cy - bh // 2, 58, h=bh)
                 continue
             info = f"k={r.rate:g}  {lv:.3f}"
             if r.shape == "vertex":
                 info += "  cw only" if r.chiral else "  either hand"
             self._text(info, (xi, cy - 7), self.small, self.ui["mid"])
-        return rows[-1][1] + rows[-1][2] + 14 if rows else y
+        return rows[-1][1] + rows[-1][2] + int(1.4 * self.row_gap) if rows else y
 
     def _draw_arrow(self, ax: float, cy: float, frac: float) -> None:
         """Reaction arrow, 42 px; the head is the same for every reaction. Rate k / k_max:
@@ -521,16 +539,16 @@ class Viewer:
         pg.draw.line(self.screen, col, (ax, cy), (tip - 8, cy), width)
         pg.draw.polygon(self.screen, col, [(tip, cy), (tip - 11, cy - 6), (tip - 11, cy + 6)])
 
-    def _draw_meter(self, x: float, cy: float, f: float) -> None:
-        """Small VU-style dial at (x, cy - 14), 52 x 30 px: log firing rate, one tick per
-        decade, needle at fraction f of the scale."""
+    def _draw_meter(self, x: float, cy: float, f: float, s: float = 1.0) -> None:
+        """Small VU-style dial centred on height cy, 52 x 30 px times s: log firing rate,
+        one tick per decade, needle at fraction f of the scale."""
         pg = self.pg
         lc = self.cfg["lamps"]
-        r = pg.Rect(x, cy - 15, 52, 30)
+        r = pg.Rect(x, cy - 15 * s, 52 * s, 30 * s)
         face, ink = self.ui["fg"], self.ui["bg"]
         pg.draw.rect(self.screen, face, r, border_radius=4)
-        px, py = r.centerx, r.bottom - 3
-        rad = 22.0
+        px, py = r.centerx, r.bottom - 3 * s
+        rad = 22.0 * s
         a0, a1 = math.radians(150), math.radians(30)  # left and right ends of the scale
         decades = round(math.log10(lc["hi"] / lc["lo"]))
         for k in range(decades + 1):
@@ -669,7 +687,7 @@ class Viewer:
             return
         hit = None
         for b, c in getattr(self, "block_centres", {}).items():
-            if (pos[0] - c[0]) ** 2 + (pos[1] - c[1]) ** 2 <= (RB * SQRT3 / 2) ** 2:
+            if (pos[0] - c[0]) ** 2 + (pos[1] - c[1]) ** 2 <= (self.rb * SQRT3 / 2) ** 2:
                 hit = b
                 break
         if hit is None:

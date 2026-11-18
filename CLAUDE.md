@@ -28,6 +28,7 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: 11 more palettes from Chris (duplicates of stormy_almond and teal_coral skipped); strawberry_slate (7 colours) in best_subset.
 - 2026-11-18: palette menu ranked by worst Delta E (pairs and background, worst of normal / deuteranopia / protanopia) for the level's number of colours: best 10 in the first column.
 - 2026-11-18: Chris: default palette eggshell_peach; menu = eggshell_peach + top 4 (dusk_coral, grape_sunflower, teal_coral, candy). Interface from the palette: darkest colour = background (its blocks get a light contour), lightest = text and meter face, most chromatic = needle; chart on a mid grey tinted with the darkest colour.
+- 2026-11-18: sandbox has 10 reaction slots (window 1000 px high; equation rows shrink when they do not fit).
 
 ## Deadline and jam
 

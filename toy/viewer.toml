@@ -2,7 +2,7 @@
 
 [window]
 width = 1280
-height = 820
+height = 1000            # 10 sandbox slots fit; rows shrink if they do not
 grid_width = 800          # width of the grid area (left column, full window height)
 fps = 60
 
@@ -24,7 +24,7 @@ style = "width"           # "width": line 1-5 px by k / k_max; "grey": lighter =
 
 [sandbox]
 colours = 5
-slots = 4                 # reaction slots (unused ones are off, k = 0)
+slots = 10                # reaction slots (unused ones are off, k = 0)
 rates = [0, 0.1, 0.2, 0.5, 1, 2]   # values the k button cycles through (0 = off)
 grid = { type = "hexagon", side = 74 }
 reactions = [
