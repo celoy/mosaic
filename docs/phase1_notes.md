@@ -172,3 +172,23 @@ hexagon open. Means over 4 seeds.
   vertices equals the winding of the colours along the border, which was zero in these runs.
 - The 1:3:2 weights of the mean-field equations are slightly off with open sides
   (border cells have fewer edges and vertices); 5–6 % of cells at this size.
+
+## Addendum: when handedness matters (T05; `python tools/science.py handedness`)
+
+- **One chiral reaction alone never matters.** A random start looks the same in a mirror,
+  so a level with one chiral reaction plays exactly like its mirror version.
+- **With 3 colours, relative handedness barely matters either.** On a closed world the
+  numbers of clockwise and anticlockwise (0,1,2) vertices are always equal. I tried five
+  3-colour designs; same vs opposite handedness differed by less than 2 standard errors in all.
+- **With a 4th colour the constraint disappears**, and relative handedness can decide the game.
+  In T05, colour 3 is a background. Reaction 4, (0,3,3) → (0,2,1), creates anticlockwise
+  triangles; reaction 5, (0,1,2) → (3,3,3), consumes clockwise ones.
+
+| creation makes | x0 at t = 40 (4 seeds) | cw / ccw (0,1,2) vertices |
+|---|---|---|
+| clockwise triangles (same hand as the consumer) | 0.018 ± 0.002 | 0.22 % / 0.10 % |
+| anticlockwise triangles (opposite hand) | 0.345 ± 0.015 | 1.28 % / 2.44 % |
+| mean field (identical for both) | 0.459 | — |
+
+Swapping the two outputs 2 and 1 of reaction 4 flips its handedness, so one switch moves
+colour 0 from coexistence to near extinction. The mean field is wrong in both cases.

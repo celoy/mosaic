@@ -20,6 +20,7 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: Chris accepted the rate rule and per-attempt shuffled control. Added empty colour (T04 May–Leonard), viewer at 1 time unit/s with partial sweeps, Pause/speed/Restart buttons, swaps only while running, arrow thickness ∝ k, --n grid override. Spirals visible at n = 128, not at 64.
 - 2026-11-18: Chris: colours only, no special empty colour; no limit on the number of colours for now; no hex borders. Active-set vs rejection benchmark (Python + GDScript): rejection kept (active set ~3× slower at 15–30 % firing, faster only below ~5–10 % active).
 - 2026-11-18: World shapes added (hex torus, hexagonal torus, open versions; grid spec "type": "hexagon", "side", "periodic"). Shape changes voter coarsening speed, not RPS/May–Leonard/chiral outcomes. Viewer: Chris's palette + palette menu (okabe_ito, tol_bright, greyscale), symbols off by default, hex equation blocks, periodic worlds tiled to the screen edge, thin chevron arrows.
+- 2026-11-18: T05 (relative handedness, 4 colours): flipping one chiral reaction moves x0 from 0.35 to 0.02, mean field blind to it (0.46 for both). With 3 colours handedness is pinned by topology and does not matter. teal_coral palette added. Next: Gate B (Chris plays T02, T04, T05).
 
 ## Deadline and jam
 

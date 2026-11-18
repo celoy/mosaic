@@ -514,6 +514,67 @@ def check_shapes(quick: bool) -> None:
     _summary(d, lines)
 
 
+# ---- check 6: relative handedness ------------------------------------------------------------
+def check_handedness(quick: bool) -> None:
+    """T05 mechanism: a chiral vertex reaction creates (0,1,2) triangles from background
+    colour 3, another consumes clockwise ones. Same vs opposite handedness, against mean field
+    (identical for both)."""
+    p = {"n": 64, "seeds": 2 if quick else 4, "t_max": 20.0 if quick else 40.0}
+    d = new_run_dir("science", "handedness", p)
+    g = hex_torus(p["n"])
+    base = [
+        Reaction("edge", [0, 3], [0, 0], 0.15),
+        Reaction("cell", [0], [3], 0.1),
+        Reaction("cell", [1], [3], 0.3),
+        Reaction("cell", [2], [3], 0.3),
+    ]
+    consume = Reaction("vertex", [0, 1, 2], [3, 3, 3], 1.0)
+    cases = {
+        "creates clockwise (same hand)": Reaction("vertex", [0, 3, 3], [0, 1, 2], 0.5),
+        "creates anticlockwise (opposite)": Reaction("vertex", [0, 3, 3], [0, 2, 1], 0.5),
+    }
+    x0 = np.array([0.1, 0.1, 0.1, 0.7])
+    lines = [
+        f"Relative handedness, n={p['n']}, {p['seeds']} seeds, t = {p['t_max']:g}; mean (s.e.)",
+        "case                               x0             x1             x3       cw%    ccw%",
+    ]
+    rows = []
+    for name, create in cases.items():
+        res = []
+        for seed in range(p["seeds"]):
+            rs = ReactionSet(
+                [
+                    *(Reaction(r.shape, list(r.inp), list(r.out), r.rate) for r in base),
+                    create,
+                    consume,
+                ],
+                4,
+            )
+            sim = Sim(g, rs, initial_colours(g.n_cells, x0, seed), seed + 41)
+            while sim.t < p["t_max"]:
+                sim.sweep()
+            c = sim.colours.astype(np.int64)
+            v = g.vertices
+            a, b, e = c[v[:, 0]], c[v[:, 1]], c[v[:, 2]]
+            tri = (a < 3) & (b < 3) & (e < 3) & (a != b) & (b != e) & (a != e)
+            cw = tri & ((a + 1) % 3 == b)
+            res.append([*sim.fractions(), cw.mean(), (tri & ~cw).mean()])
+            rows.append([name, seed, *res[-1]])
+            if seed == 0:
+                snapshot(sim, d / f"handedness_{'same' if 'same' in name else 'opposite'}.png")
+        m = np.mean(res, axis=0)
+        se = np.std(res, axis=0) / np.sqrt(len(res))
+        lines.append(
+            f"{name:34s} {m[0]:.3f} ({se[0]:.3f})  {m[1]:.3f} ({se[1]:.3f})  "
+            f"{m[3]:.3f} ({se[3]:.3f})  {100 * m[4]:5.2f}  {100 * m[5]:5.2f}"
+        )
+    rs = ReactionSet([*base, cases["creates clockwise (same hand)"], consume], 4)
+    mf = integrate(rhs(rs), x0, np.array([0.0, p["t_max"]]), 1e-2)[-1]
+    lines.append(f"mean field (identical for both)    x = {np.round(mf, 3)}")
+    write_csv(d / "handedness.csv", ["case", "seed", "x0", "x1", "x2", "x3", "cw", "ccw"], rows)
+    _summary(d, lines)
+
+
 CHECKS = {
     "voter": check_voter,
     "rps": check_rps,
@@ -521,6 +582,7 @@ CHECKS = {
     "chiral": check_chiral,
     "levels": check_levels,
     "shapes": check_shapes,
+    "handedness": check_handedness,
 }
 
 
