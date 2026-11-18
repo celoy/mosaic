@@ -19,6 +19,7 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: Phase 1 built (grid 64 × 64 confirmed by Chris): mosaic_model, tests 1–7 pass, science checks 1–4 run (docs/phase1_notes.md), pygame viewer, test levels T01–T03. Gate B pending: Chris plays the viewer.
 - 2026-11-18: Chris accepted the rate rule and per-attempt shuffled control. Added empty colour (T04 May–Leonard), viewer at 1 time unit/s with partial sweeps, Pause/speed/Restart buttons, swaps only while running, arrow thickness ∝ k, --n grid override. Spirals visible at n = 128, not at 64.
 - 2026-11-18: Chris: colours only, no special empty colour; no limit on the number of colours for now; no hex borders. Active-set vs rejection benchmark (Python + GDScript): rejection kept (active set ~3× slower at 15–30 % firing, faster only below ~5–10 % active).
+- 2026-11-18: World shapes added (hex torus, hexagonal torus, open versions; grid spec "type": "hexagon", "side", "periodic"). Shape changes voter coarsening speed, not RPS/May–Leonard/chiral outcomes. Viewer: Chris's palette + palette menu (okabe_ito, tol_bright, greyscale), symbols off by default, hex equation blocks, periodic worlds tiled to the screen edge, thin chevron arrows.
 
 ## Deadline and jam
 

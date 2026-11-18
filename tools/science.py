@@ -383,12 +383,144 @@ def check_levels(quick: bool) -> None:
     _summary(d, lines)
 
 
+# ---- check 5: world shape -----------------------------------------------------------------
+WORLD_SPECS = {
+    "torus64 (rect, glued)": {"type": "hex", "n": 64},
+    "rect64 open": {"type": "hex", "n": 64, "periodic": False},
+    "hextorus37 (glued)": {"type": "hexagon", "side": 37},
+    "hexagon37 open": {"type": "hexagon", "side": 37, "periodic": False},
+}
+
+
+def chiral_count_set(mirror: bool = False) -> ReactionSet:
+    """A count-changing chiral vertex reaction (0,1,2) -> (0,0,2), or its mirror image,
+    with 0|2 -> 2|2 (0.3) and 2 -> 1 (0.2)."""
+    inp, out = ([0, 2, 1], [0, 2, 0]) if mirror else ([0, 1, 2], [0, 0, 2])
+    return ReactionSet(
+        [
+            Reaction("vertex", inp, out, 1.0, chiral=True),
+            Reaction("edge", [0, 2], [2, 2], 0.3),
+            Reaction("cell", [2], [1], 0.2),
+        ],
+        3,
+    )
+
+
+def check_shapes(quick: bool) -> None:
+    from mosaic_model import make_graph
+
+    p = {
+        "seeds": 2 if quick else 4,
+        "worlds": WORLD_SPECS,
+        "voter_t": [5, 20, 50],
+        "rps_eps": [0, 3] if quick else [0, 3, 10],
+        "rps_t": 100.0 if quick else 300.0,
+        "ml_t": 60.0 if quick else 200.0,
+        "chiral_t": 30.0 if quick else 60.0,
+    }
+    d = new_run_dir("science", "shapes", p)
+    rows = []
+    lines = [f"World shape, {p['seeds']} seeds per case. Cells: "]
+    graphs = {name: make_graph(spec) for name, spec in WORLD_SPECS.items()}
+    lines[0] += ", ".join(f"{k} {g.n_cells}" for k, g in graphs.items())
+    lines += [
+        "Each column is one world; entries are means over seeds.",
+        "",
+    ]
+    table: dict[str, dict[str, str]] = {}
+
+    def put(row: str, world: str, val: str) -> None:
+        table.setdefault(row, {})[world] = val
+
+    for wname, g in graphs.items():
+        boundary = sum(1 for x in g.neighbours() if len(x) < 6) / g.n_cells
+        put("boundary cells", wname, f"{100 * boundary:.1f}%")
+        # voter
+        rs = ReactionSet(
+            [Reaction("edge", [0, 1], [0, 0], 1.0), Reaction("edge", [1, 0], [1, 1], 1.0)], 2
+        )
+        rho = {t: [] for t in p["voter_t"]}
+        for seed in range(p["seeds"]):
+            sim = Sim(g, rs.copy(), initial_colours(g.n_cells, [0.5, 0.5], seed), seed + 100)
+            for t in p["voter_t"]:
+                while sim.t < t:
+                    sim.sweep()
+                rho[t].append(unlike_edges(sim))
+        for t in p["voter_t"]:
+            put(f"voter rho(t={t})", wname, f"{np.mean(rho[t]):.3f}")
+        # zero-sum RPS with exchange
+        for eps in p["rps_eps"]:
+            ext = []
+            for seed in range(p["seeds"]):
+                sim = Sim(g, rps_set(eps), initial_colours(g.n_cells, [1 / 3] * 3, seed), seed + 7)
+                r = trace(sim, p["rps_t"], 1.0)
+                ext.append(first_extinction(r, 3))
+                rows += [[wname, "rps", eps, seed, *row[:4]] for row in r]
+                if seed == 0 and eps == 0:
+                    snapshot(sim, d / f"rps_eps0_{g.label()}.png")
+            n_ext = int(np.sum(~np.isnan(ext)))
+            mt = f" t~{np.nanmean(ext):.0f}" if n_ext else ""
+            put(
+                f"RPS eps={eps:g}: lost a species (t<={p['rps_t']:g})",
+                wname,
+                f"{n_ext}/{p['seeds']}{mt}",
+            )
+        # May-Leonard
+        for ex in ("all", "holes"):
+            ext, xe = [], []
+            for seed in range(p["seeds"]):
+                sim = Sim(
+                    g,
+                    may_leonard_set(1.0, ex),
+                    initial_colours(g.n_cells, [0.25] * 4, seed),
+                    seed + 3,
+                )
+                r = trace(sim, p["ml_t"], 1.0)
+                ext.append(next((row[0] for row in r if min(row[1:4]) == 0.0), float("nan")))
+                xe.append(r[-1][4])
+                rows += [[wname, f"ml_{ex}", 1.0, seed, *row[:4]] for row in r]
+                if seed == 0:
+                    snapshot(sim, d / f"ml_{ex}_{g.label()}.png")
+            n_ext = int(np.sum(~np.isnan(ext)))
+            put(f"May-Leonard {ex} eps=1: lost a species", wname, f"{n_ext}/{p['seeds']}")
+            put(f"May-Leonard {ex} eps=1: x3 at end", wname, f"{np.mean(xe):.3f}")
+        # chiral count-changing reaction and its mirror
+        for mirror in (False, True):
+            xs, chis = [], []
+            for seed in range(p["seeds"]):
+                sim = Sim(
+                    g,
+                    chiral_count_set(mirror),
+                    initial_colours(g.n_cells, [1 / 3] * 3, seed),
+                    seed + 9,
+                )
+                while sim.t < p["chiral_t"]:
+                    sim.sweep()
+                xs.append(sim.fractions())
+                chis.append(vertex_stats(sim)[1])
+            tag = "mirror" if mirror else "clockwise"
+            put(
+                f"chiral {tag}: x0, x1, x2",
+                wname,
+                ", ".join(f"{v:.3f}" for v in np.mean(xs, axis=0)),
+            )
+            put(f"chiral {tag}: net chirality", wname, f"{np.mean(chis):+.3f}")
+    names = list(graphs)
+    w0 = max(len(r) for r in table) + 2
+    lines.append(" " * w0 + "".join(f"{n:>24s}" for n in names))
+    for rname, vals in table.items():
+        lines.append(f"{rname:{w0}s}" + "".join(f"{vals.get(n, ''):>24s}" for n in names))
+    write_csv(d / "shapes.csv", ["world", "case", "eps", "seed", "t", "x0", "x1", "x2"], rows)
+    _summary(d, lines)
+
+
 CHECKS = {
     "voter": check_voter,
     "rps": check_rps,
     "mayleonard": check_mayleonard,
     "chiral": check_chiral,
     "levels": check_levels,
+    "shapes": check_shapes,
 }
 
 

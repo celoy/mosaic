@@ -46,7 +46,7 @@ def run_to(sim, t: float) -> None:
 # ---- 1. equivalence ---------------------------------------------------------------------
 def equivalence(seeds: int) -> list[str]:
     g = hex_torus(32)
-    half = np.array([0 if g.centers[i, 0] < g.period[0] / 2 else 1 for i in range(g.n_cells)])
+    half = (g.centers[:, 0] >= g.centers[:, 0].max() / 2).astype(int)
     cases = {
         # deterministic-ish: invasion fronts from a half-plane
         "front 0|1->0|0": (ReactionSet([Reaction("edge", [0, 1], [0, 0], 1.0)], 2), half, 1.5),
@@ -152,7 +152,7 @@ def speed(sizes: list[int], t_run: float) -> tuple[list[str], list[list]]:
                     f"{100 * res['active']:7.2f}  {res['rej']:8.4f}  {res['act']:8.4f}  {sp:8.2f}"
                 )
         # sparse case: a straight front (one reaction, two interfaces on the torus)
-        half = [0 if g.centers[i, 0] < g.period[0] * 0.25 else 1 for i in range(g.n_cells)]
+        half = (g.centers[:, 0] >= g.centers[:, 0].max() * 0.25).astype(int).tolist()
         res = {}
         for kind, cls in (("rej", Sim), ("act", ActiveSim)):
             rs = ReactionSet([Reaction("edge", [0, 1], [0, 0], 1.0)], 2)

@@ -144,3 +144,31 @@ switch below ~5 %.
 Absolute GDScript cost (native headless, rejection): RPS + exchange (T02) 4.6 ms per
 time unit at 64², 18 ms at 128². At ×16 (16 time units per second) that is 7 % / 29 % of
 a CPU core. Both fit.
+
+## Addendum: world shape (run `runs/science/shapes_20261118-123517`)
+
+Four worlds of about 4000 cells: the rectangular torus 64 × 64 (glued), the same block with
+open sides, a hexagon of side 37 with opposite sides glued (a hexagonal torus), and the same
+hexagon open. Means over 4 seeds.
+
+| | torus 64 | rect 64 open | hex torus 37 | hexagon 37 open |
+|---|---|---|---|---|
+| cells with < 6 neighbours | 0 % | 6.2 % | 0 % | 5.4 % |
+| voter ρ at t = 5 / 20 / 50 | .232/.210/.202 | .242/.184/.150 | .242/.195/.174 | .237/.189/.159 |
+| RPS ε = 0, 3, 10: lost a species (t ≤ 300) | 0/4 each | 0/4 each | 0/4 each | 0/4 each |
+| May–Leonard (all, ε = 1): lost a species | 0/4 | 0/4 | 0/4 | 1/4 |
+| May–Leonard x3 at end (all / holes) | .089/.062 | .082/.052 | .087/.053 | .062/.055 |
+| chiral count-changing set, x1 at t = 60 | .983 | .986 | .990 | .989 |
+
+- **Shape matters mostly for slow coarsening.** Voter interfaces fall faster with open
+  sides (ρ = 0.15–0.16 vs 0.20 at t = 50). The rectangular torus is the slowest; the hexagonal
+  torus sits in between.
+  Plausible reasons (not tested): domains can wrap around a torus, forming straight bands
+  that never shrink, and the rectangular torus has two short directions while the hexagonal
+  one has three equal ones. The difference is about 2σ with 4 seeds.
+- **Fast reactions don't care.** For RPS, May–Leonard and the chiral set, every world gives
+  the same outcome within noise.
+- **Net chirality stays zero in every world.** With open sides, #cw − #ccw trichromatic
+  vertices equals the winding of the colours along the border, which was zero in these runs.
+- The 1:3:2 weights of the mean-field equations are slightly off with open sides
+  (border cells have fewer edges and vertices); 5–6 % of cells at this size.

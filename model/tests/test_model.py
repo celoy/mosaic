@@ -14,6 +14,7 @@ from mosaic_model import (
     Reaction,
     ReactionSet,
     Sim,
+    hex_hexagon,
     hex_torus,
     initial_colours,
     integrate,
@@ -28,27 +29,46 @@ LEVELS = Path(__file__).resolve().parents[2] / "levels"
 
 
 # ---- grid -------------------------------------------------------------------------------
-@pytest.mark.parametrize("n", [4, 8, 64])
-def test_hex_grid_adjacency(n: int) -> None:
-    g = hex_torus(n)
-    assert g.edges.shape == (3 * n * n, 2)
-    assert g.vertices.shape == (2 * n * n, 3)
+WORLDS = {
+    "hex8": lambda: hex_torus(8),
+    "hex64": lambda: hex_torus(64),
+    "hex8-open": lambda: hex_torus(8, periodic=False),
+    "hexagon5": lambda: hex_hexagon(5),
+    "hexagon37": lambda: hex_hexagon(37),
+    "hexagon5-open": lambda: hex_hexagon(5, periodic=False),
+}
+
+
+@pytest.mark.parametrize("name", WORLDS)
+def test_world_adjacency(name: str) -> None:
+    g = WORLDS[name]()
     nb = g.neighbours()
+    assert len({frozenset(e) for e in g.edges.tolist()}) == len(g.edges)  # no duplicate edge
     for i in range(g.n_cells):
-        assert len(set(nb[i])) == 6 and i not in nb[i]
-    # every unordered edge appears once
-    assert len({frozenset(e) for e in g.edges.tolist()}) == 3 * n * n
-    # every vertex is a triangle of mutual neighbours, listed clockwise on screen (y down)
-    seen = set()
+        assert i not in nb[i] and len(set(nb[i])) == len(nb[i]) <= 6
+    # every vertex is a triangle of mutual neighbours, clockwise on screen (y down),
+    # at unit distance (adjacent hexes are sqrt3 apart)
     for a, b, c in g.vertices.tolist():
         assert b in nb[a] and c in nb[a] and c in nb[b]
         u, v = g.displacement(a, b), g.displacement(a, c)
-        assert u[0] * v[1] - u[1] * v[0] > 0  # positive cross product in y-down = clockwise
-        seen.add(frozenset((a, b, c)))
-    assert len(seen) == 2 * n * n
-    # each cell touches 6 vertices
+        assert u[0] * v[1] - u[1] * v[0] > 0
+        assert np.allclose([u @ u, v @ v], 3.0)
+    assert len({frozenset(v) for v in g.vertices.tolist()}) == len(g.vertices)
     deg = np.bincount(g.vertices.ravel(), minlength=g.n_cells)
-    assert (deg == 6).all()
+    if g.periodic:
+        assert len(g.edges) == 3 * g.n_cells and len(g.vertices) == 2 * g.n_cells
+        assert all(len(x) == 6 for x in nb) and (deg == 6).all()
+    else:
+        assert min(len(x) for x in nb) in (2, 3) and max(len(x) for x in nb) == 6
+        # Euler for a disc triangulation (cells = nodes, vertices = faces): N - E + F = 1
+        assert g.n_cells - len(g.edges) + len(g.vertices) == 1
+
+
+def test_hexagon_cell_count_and_old_hex_layout() -> None:
+    assert hex_hexagon(37).n_cells == 3 * 37 * 37 - 3 * 37 + 1
+    g = hex_torus(4)  # same element order as the Phase 0/1 grid (Godot benchmark)
+    assert g.edges[:3].tolist() == [[0, 1], [0, 7], [0, 4]]
+    assert g.vertices[:2].tolist() == [[0, 1, 4], [0, 4, 7]]
 
 
 # ---- test 1: lookup tables vs brute force -----------------------------------------------
@@ -296,3 +316,19 @@ def test_advance_partial_sweeps_keeps_time_and_sweep_count() -> None:
     assert sim.sweeps == int(sim.t * sim.K)
     sim.sweep()  # finishes the partial sweep: time lands on a whole number of sweeps
     assert sim.t * sim.K == pytest.approx(round(sim.t * sim.K))
+
+
+@pytest.mark.parametrize("name", ["hex8", "hexagon5", "hexagon5-open"])
+def test_view_tiling_is_consistent(name: str) -> None:
+    """Tiled viewport: every pixel boundary between two cells joins grid neighbours, and
+    periodic worlds cover the whole viewport."""
+    from mosaic_model.raster import view_pixel_map
+
+    g = WORLDS[name]()
+    pm = view_pixel_map(g, 9.0, 420, 330)
+    nb = [set(x) for x in g.neighbours()]
+    for a, b in ((pm[:, :-1], pm[:, 1:]), (pm[:-1, :], pm[1:, :])):
+        m = (a != b) & (a >= 0) & (b >= 0)
+        assert all(j in nb[i] for i, j in zip(a[m], b[m], strict=True))
+    assert len(np.unique(pm[pm >= 0])) == g.n_cells
+    assert (pm >= 0).all() == g.periodic

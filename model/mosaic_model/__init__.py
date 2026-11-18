@@ -1,7 +1,7 @@
 """Python twin of the Mosaic Shift reaction mosaic."""
 
 from .goals import GoalTracker
-from .graph import Graph, hex_torus, make_graph
+from .graph import Graph, hex_hexagon, hex_torus, make_graph
 from .level import Level, initial_colours, load_level, make_sim
 from .meanfield import equations, integrate, rhs
 from .reactions import Reaction, ReactionSet, orientations
@@ -17,6 +17,7 @@ __all__ = [
     "ReactionSet",
     "Sim",
     "equations",
+    "hex_hexagon",
     "hex_torus",
     "initial_colours",
     "integrate",

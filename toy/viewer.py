@@ -6,6 +6,8 @@
 Click two unlocked blocks to swap them (only while running, not while paused).
 Buttons or keys: Space pause, 1/2/3 speed x1/x4/x16, R restart, S screenshot, Esc quit.
 --n N overrides the grid size (e.g. --n 128 to see May-Leonard spirals).
+--world torus:64 | open:64 | hextorus:37 | hexagon:37 overrides the world shape
+(hextorus = hexagon with opposite sides glued; hexagon = open hexagon).
 Swaps are logged to runs/viewer/<level>_<time>/session.json.
 """
 
@@ -27,12 +29,13 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "toy"))
 
 from mosaic_model import GoalTracker, Level, Sim, load_level, make_sim  # noqa: E402
-from mosaic_model.raster import hex_pixel_map, render_rgb  # noqa: E402
+from mosaic_model.graph import SQRT3  # noqa: E402
+from mosaic_model.raster import fit_size, render_rgb, view_pixel_map  # noqa: E402
 from mosaic_model.reactions import ARITY, Block  # noqa: E402
-from palette import glyphs, palette_rgb  # noqa: E402
+from palette import glyphs, names, palette_rgb  # noqa: E402
 
-B = 30  # block size, px
-GAP = 3
+RB = 16.0  # circumradius of an equation block (hexagon), px
+GAP = 1.08  # spacing factor between neighbouring blocks (1 = touching)
 WHITE = (235, 235, 240)
 GREY = (140, 140, 150)
 DARK = (25, 25, 30)
@@ -61,9 +64,12 @@ class Viewer:
         self.small = pygame.font.Font(None, 17)
         self.big = pygame.font.Font(None, 36)
         pal = cfg["palette"]
-        self.pal = palette_rgb(cfg, level.palette)
+        self.palette_name = pal["default"]
+        self.pal = palette_rgb(cfg, level.palette, self.palette_name)
         self.bg = pygame.Color(pal["background"])[:3]
         self.glyphs = glyphs(cfg, level.palette)
+        self.show_glyphs = bool(pal.get("show_glyphs", False))
+        self.menu_open = False
 
         t0 = time.perf_counter()
         print(f"burn-in: {level.start.get('burn_in_sweeps', 0)} sweeps ...", flush=True)
@@ -71,14 +77,12 @@ class Viewer:
         print(f"burn-in done in {time.perf_counter() - t0:.1f} s", flush=True)
         self.start_cols = list(self.sim0.col)
         g = self.sim0.graph
-        size = min(
-            cfg["window"]["grid_width"] / (math.sqrt(3) * (g.n + 0.5)),
-            (h - 20) / (1.5 * g.n + 0.5),
-        )
-        self.pixmap = hex_pixel_map(g, size, border=cfg["grid"]["border"])
-        self.grid_rect = pygame.Rect(10, 10, self.pixmap.shape[1], self.pixmap.shape[0])
+        gw = cfg["window"]["grid_width"]
+        size = fit_size(g, gw - 20, h - 20)  # whole world visible; periodic worlds tile out
+        self.pixmap = view_pixel_map(g, size, gw, h, border=cfg["grid"]["border"])
+        self.grid_rect = pygame.Rect(0, 0, gw, h)
         self.grid_surf = pygame.Surface(self.grid_rect.size)
-        self.panel_x = self.grid_rect.right + 25
+        self.panel_x = self.grid_rect.right + 20
         self.restarts = 0
         self.session: list[dict] = []
         self.run_dir: Path | None = None
@@ -172,6 +176,7 @@ class Viewer:
         y = self._draw_equations(y + 10)
         self._draw_chart(y + 10)
         self._draw_status()
+        self._draw_menu()
 
     def _text(self, s: str, pos, font=None, col=WHITE) -> int:
         surf = (font or self.font).render(s, True, col)
@@ -211,37 +216,85 @@ class Viewer:
             self.screen.blit(t, t.get_rect(center=r.center))
             self.buttons[key] = r
             x += w + 8
+        # second row: palette menu and symbols toggle
+        x = self.panel_x
+        y2 = y + 32
+        for key, text, w in (
+            ("palette", f"Palette: {self.palette_name}", 170),
+            ("glyphs", f"Symbols: {'on' if self.show_glyphs else 'off'}", 110),
+        ):
+            r = pg.Rect(x, y2, w, 26)
+            pg.draw.rect(self.screen, (50, 50, 60), r, border_radius=5)
+            pg.draw.rect(self.screen, GREY, r, 1, border_radius=5)
+            t = self.font.render(text, True, WHITE)
+            self.screen.blit(t, t.get_rect(center=r.center))
+            self.buttons[key] = r
+            x += w + 8
         x = self.panel_x
         if self.notice and time.time() < self.notice_until:
-            self._text(self.notice, (x, y + 31), self.small, (240, 180, 90))
+            self._text(self.notice, (x, y2 + 32), self.small, (240, 180, 90))
         elif self.paused:
-            self._text("paused: switching disabled", (x, y + 31), self.small, GREY)
-        return y + 46
+            self._text("paused: no switching", (x, y2 + 32), self.small, GREY)
+        return y2 + 50
 
-    def _block_rects(self, y: int) -> tuple[dict, list[tuple[int, int, int]]]:
-        """Rects for every block, and (reaction index, row y, row height)."""
-        rects: dict[Block, object] = {}
+    def _draw_menu(self) -> None:
+        """Palette dropdown, drawn last (on top); each entry shows a swatch."""
+        if not self.menu_open:
+            return
+        pg = self.pg
+        r0 = self.buttons["palette"]
+        y = r0.bottom + 2
+        for name in names(self.cfg):
+            r = pg.Rect(r0.x, y, 260, 26)
+            pg.draw.rect(self.screen, (35, 35, 44), r)
+            pg.draw.rect(self.screen, GREY, r, 1)
+            self._text(name, (r.x + 8, r.y + 6), self.font)
+            sw = palette_rgb(self.cfg, self.level.palette, name)
+            for k, c in enumerate(sw):
+                pg.draw.rect(self.screen, c, pg.Rect(r.x + 120 + k * 22, r.y + 5, 18, 16))
+            self.buttons[f"pal:{name}"] = r
+            y += 26
+
+    @staticmethod
+    def _hex_points(c: tuple[float, float], rad: float) -> list[tuple[float, float]]:
+        """Pointy-top hexagon around c."""
+        return [
+            (
+                c[0] + rad * math.cos(math.radians(60 * k - 90)),
+                c[1] + rad * math.sin(math.radians(60 * k - 90)),
+            )
+            for k in range(6)
+        ]
+
+    def _block_layout(self, y: int) -> tuple[dict, list[tuple[int, int, int]]]:
+        """Centre of every block, and (reaction index, row top y, row height).
+
+        Blocks sit like cells on the grid: an edge is two horizontal neighbours, a vertex
+        is three hexes around their shared corner, clockwise 0 (top), 1 (lower right),
+        2 (lower left)."""
+        cents: dict[Block, tuple[float, float]] = {}
         rows = []
-        x0 = self.panel_x + 40
+        w = SQRT3 * RB * GAP  # centre spacing of neighbours
+        x_in = self.panel_x + 40 + RB
+        x_out = x_in + 2 * w + 60
         for i, r in enumerate(self.sim.reactions.reactions):
             m = ARITY[r.shape]
-            h = 2 * B + GAP if r.shape == "vertex" else B
-            for side, xs in (("in", x0), ("out", x0 + 2 * (B + GAP) + 50)):
+            h = int(2 * RB + (1.5 * RB * GAP if r.shape == "vertex" else 0))
+            cy0 = y + RB
+            for side, xs in (("in", x_in), ("out", x_out)):
                 for p in range(m):
                     if r.shape == "vertex":
-                        # clockwise: 0 top, 1 bottom right, 2 bottom left
-                        dx, dy = [((B + GAP) // 2, 0), (B + GAP, B + GAP), (0, B + GAP)][p]
+                        dx, dy = [(w / 2, 0), (w, 1.5 * RB * GAP), (0, 1.5 * RB * GAP)][p]
                     else:
-                        dx, dy = p * (B + GAP), 0
-                    rects[(i, side, p)] = self.pg.Rect(xs + dx, y + dy, B, B)
+                        dx, dy = p * w, 0
+                    cents[(i, side, p)] = (xs + dx, cy0 + dy)
             rows.append((i, y, h))
             y += h + 10
-        return rects, rows
+        return cents, rows
 
-    def _draw_glyph(self, kind: str, rect, col) -> None:
+    def _draw_glyph(self, kind: str, c: tuple[float, float], col) -> None:
         pg = self.pg
-        c = rect.center
-        s = rect.width * 0.22
+        s = RB * 0.42
         x, y = c
         if kind == "circle":
             pg.draw.circle(self.screen, col, c, s)
@@ -251,43 +304,45 @@ class Viewer:
             tri = [(x, y - s), (x + s, y + s * 0.8), (x - s, y + s * 0.8)]
             pg.draw.polygon(self.screen, col, tri)
         elif kind == "square":
-            pg.draw.rect(self.screen, col, pg.Rect(x - s * 0.85, y - s * 0.85, 1.7 * s, 1.7 * s))
+            pg.draw.rect(self.screen, col, pg.Rect(x - s * 0.8, y - s * 0.8, 1.6 * s, 1.6 * s))
         elif kind == "diamond":
             pg.draw.polygon(
                 self.screen, col, [(x, y - s * 1.2), (x + s, y), (x, y + s * 1.2), (x - s, y)]
             )
         elif kind == "cross":
-            pg.draw.line(self.screen, col, (x - s, y), (x + s, y), 4)
-            pg.draw.line(self.screen, col, (x, y - s), (x, y + s), 4)
+            pg.draw.line(self.screen, col, (x - s, y), (x + s, y), 3)
+            pg.draw.line(self.screen, col, (x, y - s), (x, y + s), 3)
         elif kind == "x":
-            pg.draw.line(self.screen, col, (x - s, y - s), (x + s, y + s), 4)
-            pg.draw.line(self.screen, col, (x - s, y + s), (x + s, y - s), 4)
+            pg.draw.line(self.screen, col, (x - s, y - s), (x + s, y + s), 3)
+            pg.draw.line(self.screen, col, (x - s, y + s), (x + s, y - s), 3)
         elif kind == "bar":
-            pg.draw.rect(self.screen, col, pg.Rect(x - s * 1.1, y - s * 0.35, 2.2 * s, 0.7 * s))
+            pg.draw.rect(self.screen, col, pg.Rect(x - s, y - s * 0.3, 2 * s, 0.6 * s))
         else:  # colour index as text
-            t = self.font.render(kind, True, col)
+            t = self.small.render(kind, True, col)
             self.screen.blit(t, t.get_rect(center=c))
 
-    def _draw_block(self, b: Block, rect) -> None:
+    def _draw_block(self, b: Block, c: tuple[float, float]) -> None:
         pg = self.pg
         rs = self.sim.reactions
-        c = rs.get(b)
-        pg.draw.rect(self.screen, self.pal[c], rect, border_radius=4)
-        self._draw_glyph(self.glyphs[c], rect, DARK)
+        col = rs.get(b)
+        if b == self.selected:
+            pg.draw.polygon(self.screen, WHITE, self._hex_points(c, RB + 4))
+        pg.draw.polygon(self.screen, self.pal[col], self._hex_points(c, RB))
+        if self.show_glyphs:
+            self._draw_glyph(self.glyphs[col], c, DARK)
         if b in rs.locked:
-            # padlock badge on the top-right corner
-            lx, ly = rect.right - 2, rect.top + 2
-            pg.draw.circle(self.screen, DARK, (lx, ly), 8)
+            # padlock badge at the upper right
+            lx, ly = c[0] + RB * 0.7, c[1] - RB * 0.6
+            pg.draw.circle(self.screen, DARK, (lx, ly), 7)
             pg.draw.rect(self.screen, WHITE, pg.Rect(lx - 4, ly - 1, 8, 6))
             pg.draw.arc(self.screen, WHITE, pg.Rect(lx - 3, ly - 6, 6, 9), 0, math.pi, 2)
-        if b == self.selected:
-            pg.draw.rect(self.screen, WHITE, rect.inflate(6, 6), 3, border_radius=6)
 
     def _draw_equations(self, y: int) -> int:
         pg = self.pg
-        rects, rows = self._block_rects(y)
-        self.rects = rects
+        cents, rows = self._block_layout(y)
+        self.block_centres = cents
         half = self.cfg["lamps"]["half"]
+        w = SQRT3 * RB * GAP
         for i, ry, h in rows:
             r = self.sim.reactions.reactions[i]
             # lamp
@@ -297,25 +352,29 @@ class Viewer:
             cy = ry + h // 2
             pg.draw.circle(self.screen, col, (self.panel_x + 14, cy), 11)
             pg.draw.circle(self.screen, GREY, (self.panel_x + 14, cy), 11, 1)
-            # arrow
-            # arrow: thickness grows with the rate k (relative to the largest rate)
-            ax = self.panel_x + 40 + 2 * (B + GAP) + 8
+            # arrow: thin line + open chevrons; 1-3 chevrons for slow / medium / fastest k
+            ax = self.panel_x + 40 + 2 * RB + w + 8
             kmax = max(q.rate for q in self.sim.reactions.reactions) or 1.0
-            wdt = max(1, round(1 + 6 * r.rate / kmax))
-            hd = 4 + wdt
-            pg.draw.line(self.screen, WHITE, (ax, cy), (ax + 36 - hd, cy), wdt)
-            pg.draw.polygon(
-                self.screen,
-                WHITE,
-                [(ax + 38, cy), (ax + 36 - 2 * hd, cy - hd), (ax + 36 - 2 * hd, cy + hd)],
-            )
-            for b_, rect in rects.items():
+            frac = r.rate / kmax
+            n_chev = 3 if frac > 0.75 else (2 if frac > 0.4 else 1)
+            ac = (200, 200, 210)
+            tip = ax + 42
+            pg.draw.line(self.screen, ac, (ax, cy), (tip - 1, cy), 2)
+            for k in range(n_chev):
+                tx = tip - 6 * k
+                pg.draw.aalines(
+                    self.screen, ac, False, [(tx - 7, cy - 6), (tx, cy), (tx - 7, cy + 6)]
+                )
+                pg.draw.aalines(
+                    self.screen, ac, False, [(tx - 8, cy - 6), (tx - 1, cy), (tx - 8, cy + 6)]
+                )
+            for b_, c in cents.items():
                 if b_[0] == i:
-                    self._draw_block(b_, rect)
+                    self._draw_block(b_, c)
             info = f"k={r.rate:g}   {lv:.3f}/cell/t"
             if r.shape == "vertex":
                 info = ("clockwise only   " if r.chiral else "either hand   ") + info
-            self._text(info, (self.panel_x + 40 + 4 * (B + GAP) + 60, cy - 7), self.small, GREY)
+            self._text(info, (self.panel_x + 40 + 4 * w + 90, cy - 7), self.small, GREY)
         return rows[-1][1] + rows[-1][2] + 14 if rows else y
 
     def _draw_chart(self, y: int) -> None:
@@ -364,10 +423,7 @@ class Viewer:
             yy += self._text(f"goal: {self._goal_text(goal)}   [{pr:4.0%}]", (x, yy)) + 2
         for f in self.level.fail:
             yy += self._text(f"fail if: {self._goal_text(f)}", (x, yy), col=GREY) + 2
-        help_ = (
-            "click 2 blocks to swap (running only) | thick arrow = large k | "
-            "keys: space 1 2 3 R S Esc"
-        )
+        help_ = "swap: click 2 blocks while running | more chevrons = faster | keys: spc 1 2 3 R S"
         self._text(help_, (x, self.screen.get_height() - 22), self.small, GREY)
 
     @staticmethod
@@ -393,11 +449,22 @@ class Viewer:
 
     # ---- input --------------------------------------------------------------------------------
     def click(self, pos) -> None:
+        if self.menu_open:
+            for key, r in self.buttons.items():
+                if key.startswith("pal:") and r.collidepoint(pos):
+                    self.set_palette(key[4:])
+                    break
+            self.menu_open = False
+            return
         for key, r in self.buttons.items():
-            if r.collidepoint(pos):
+            if not key.startswith("pal:") and r.collidepoint(pos):
                 self.button(key)
                 return
-        hit = next((b for b, r in getattr(self, "rects", {}).items() if r.collidepoint(pos)), None)
+        hit = None
+        for b, c in getattr(self, "block_centres", {}).items():
+            if (pos[0] - c[0]) ** 2 + (pos[1] - c[1]) ** 2 <= (RB * SQRT3 / 2) ** 2:
+                hit = b
+                break
         if hit is None:
             self.selected = None
             return
@@ -415,6 +482,10 @@ class Viewer:
             self.swap(self.selected, hit)
             self.selected = None
 
+    def set_palette(self, name: str) -> None:
+        self.palette_name = name
+        self.pal = palette_rgb(self.cfg, self.level.palette, name)
+
     def _notify(self, msg: str) -> None:
         self.notice = msg
         self.notice_until = time.time() + 2.0
@@ -428,6 +499,10 @@ class Viewer:
             self.speed_i = int(key[5:])
         elif key == "restart":
             self.reset()
+        elif key == "palette":
+            self.menu_open = not self.menu_open
+        elif key == "glyphs":
+            self.show_glyphs = not self.show_glyphs
 
     def save(self, screenshot: bool = False) -> Path:
         if self.run_dir is None:
@@ -481,8 +556,8 @@ class Viewer:
                     )
                     self.click(self.buttons["pause"].center)
                     self.draw()
-                    blk = next(b for b in self.rects if b not in self.sim.reactions.locked)
-                    self.click(self.rects[blk].center)
+                    blk = next(b for b in self.block_centres if b not in self.sim.reactions.locked)
+                    self.click(self.block_centres[blk])
                     assert self.selected is None and self.paused
                     after = (
                         self.sim.reactions.multiset(),
@@ -496,11 +571,11 @@ class Viewer:
                     free = [
                         b for b in self.sim.reactions.blocks() if b not in self.sim.reactions.locked
                     ]
-                    self.click(self.rects[free[0]].center)
+                    self.click(self.block_centres[free[0]])
                     self.draw()
-                    self.click(self.rects[free[-1]].center)
+                    self.click(self.block_centres[free[-1]])
                 if frame >= smoke_frames:
-                    self.click(self.rects[free[0]].center)  # leave one block selected
+                    self.click(self.block_centres[free[0]])  # leave one block selected
                     self.draw()
                     self.save(screenshot=True)
                     running = False
@@ -518,6 +593,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--shuffled", action="store_true", help="well-mixed control")
     ap.add_argument("--n", type=int, default=None, help="override the grid size")
+    ap.add_argument("--world", default=None, help="torus:N | open:N | hextorus:S | hexagon:S")
     ap.add_argument("--smoke", type=int, default=0, help="headless: run N frames, save PNG")
     a = ap.parse_args()
     if a.smoke:
@@ -528,6 +604,14 @@ def main() -> None:
     level = load_level(a.level)
     if a.n:
         level.grid = {**level.grid, "n": a.n}
+    if a.world:
+        kind, size = a.world.split(":")
+        level.grid = {
+            "torus": {"type": "hex", "n": int(size)},
+            "open": {"type": "hex", "n": int(size), "periodic": False},
+            "hextorus": {"type": "hexagon", "side": int(size)},
+            "hexagon": {"type": "hexagon", "side": int(size), "periodic": False},
+        }[kind]
     v = Viewer(level, load_cfg(), a.seed, a.shuffled)
     v.loop(a.smoke)
     pygame.quit()

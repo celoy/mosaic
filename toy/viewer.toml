@@ -3,7 +3,7 @@
 [window]
 width = 1280
 height = 820
-grid_width = 780          # pixels available for the hex grid (left column)
+grid_width = 800          # width of the grid area (left column, full window height)
 fps = 60
 
 [speed]
@@ -24,8 +24,15 @@ height = 220
 border = 0.0              # dark gap between hexes, fraction of the inradius (0 = none)
 
 [palette]
-# Okabe-Ito order without black (recalled, to be checked). Levels with more colours than
-# listed get extra hues generated evenly around the colour wheel (and a number as glyph).
-colours = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999"]
+default = "chris"         # one of the [palettes] below; switch live from the viewer menu
+show_glyphs = false       # symbols on the equation blocks (toggle in the viewer)
 glyphs = ["circle", "triangle", "square", "diamond", "cross", "ring", "bar", "x"]
 background = "#1E1E24"
+
+[palettes]
+# Lists of hex colours. Levels with more colours than listed get extra pastel hues.
+# "greyscale" is generated for any number of colours.
+chris = ["#CBE896", "#AAC0AA", "#FCDFA6", "#A18276", "#F4B886"]   # coolors.co, 2026-11-18
+okabe_ito = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999"]
+tol_bright = ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"]
+greyscale = []
