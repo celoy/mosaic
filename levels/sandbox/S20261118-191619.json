@@ -1,0 +1,125 @@
+{
+ "id": "S20261118-191619",
+ "title": "sandbox",
+ "grid": {
+  "type": "hexagon",
+  "side": 74
+ },
+ "palette": 5,
+ "reactions": [
+  {
+   "shape": "edge",
+   "in": [
+    0,
+    1
+   ],
+   "out": [
+    1,
+    1
+   ],
+   "rate": 1.0
+  },
+  {
+   "shape": "edge",
+   "in": [
+    0,
+    2
+   ],
+   "out": [
+    0,
+    0
+   ],
+   "rate": 1.0
+  },
+  {
+   "shape": "edge",
+   "in": [
+    1,
+    2
+   ],
+   "out": [
+    2,
+    2
+   ],
+   "rate": 1.0
+  },
+  {
+   "shape": "vertex",
+   "in": [
+    0,
+    2,
+    1
+   ],
+   "out": [
+    1,
+    0,
+    2
+   ],
+   "rate": 2.0,
+   "chiral": true
+  },
+  {
+   "shape": "vertex",
+   "in": [
+    0,
+    1,
+    1
+   ],
+   "out": [
+    1,
+    1,
+    1
+   ],
+   "rate": 1.0,
+   "chiral": false
+  },
+  {
+   "shape": "vertex",
+   "in": [
+    2,
+    0,
+    0
+   ],
+   "out": [
+    0,
+    0,
+    0
+   ],
+   "rate": 1.0,
+   "chiral": false
+  },
+  {
+   "shape": "vertex",
+   "in": [
+    1,
+    2,
+    2
+   ],
+   "out": [
+    2,
+    2,
+    2
+   ],
+   "rate": 1.0,
+   "chiral": false
+  }
+ ],
+ "locked": [],
+ "start": {
+  "seed": 36,
+  "fractions": [
+   0.333333,
+   0.333333,
+   0.333333,
+   0.0,
+   0.0
+  ],
+  "burn_in_sweeps": 300
+ },
+ "goals": [],
+ "fail": [],
+ "meta": {
+  "from": "sandbox",
+  "source": ""
+ }
+}
