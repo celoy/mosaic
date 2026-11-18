@@ -30,6 +30,7 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: Chris: default palette eggshell_peach; menu = eggshell_peach + top 4 (dusk_coral, grape_sunflower, teal_coral, candy). Interface from the palette: darkest colour = background (its blocks get a light contour), lightest = text and meter face, most chromatic = needle; chart on a mid grey tinted with the darkest colour.
 - 2026-11-18: sandbox has 10 reaction slots (window 1000 px high; equation rows shrink when they do not fit).
 - 2026-11-18: sandbox random start uses only colours 0..n-1 (Start button: left +1, right -1; --start; [sandbox] start_colours = 3); saved levels keep these fractions.
+- 2026-11-18: Chris's 5-colour tournament (S20261118-184837, each colour beats two): grid time-averages match the mean-field point A x* = 0 within 0.015; x*_i depends only on the rates of reactions not involving i; grid coexistence is stable (sd 0.02), shuffled runs lose 2 colours in 5 of 6 runs by t = 400 (tools/tournament.py).
 
 ## Deadline and jam
 
