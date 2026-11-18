@@ -349,8 +349,9 @@ def test_all_reactions_off_is_inert():
 
 
 def test_palette_best_subset():
-    """Long palettes: the n picked colours maximise the smallest Delta E (pairs and
-    background, normal vision), and names follow the picked colours."""
+    """Long palettes: the n picked colours maximise the smallest pairwise Delta E (normal
+    vision), names follow the picked colours, and the interface takes the darkest and
+    lightest of them."""
     import itertools
     import sys
     import tomllib
@@ -358,16 +359,18 @@ def test_palette_best_subset():
 
     root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / "toy"))
-    from palette import _hex, colour_names, min_delta_e, palette_rgb
+    from palette import _hex, colour_names, luminance, min_delta_e, palette_rgb, ui_colours
 
     cfg = tomllib.loads((root / "toy" / "viewer.toml").read_text())
-    bg = _hex(cfg["palette"]["background"])
     for name in cfg["palette"]["best_subset"]:
         allc = [_hex(c) for c in cfg["palettes"][name]]
         names_all = cfg["palette_names"][name]
         n = min(5, len(allc) - 1)
-        got = palette_rgb(cfg, n, name)
-        best = max(min_delta_e(list(s) + [bg]) for s in itertools.combinations(allc, n))
-        assert abs(min_delta_e(list(got) + [bg]) - best) < 1e-9
+        got = [tuple(int(v) for v in c) for c in palette_rgb(cfg, n, name)]
+        best = max(min_delta_e(list(s)) for s in itertools.combinations(allc, n))
+        assert abs(min_delta_e(got) - best) < 1e-9
         for c, nm in zip(got, colour_names(cfg, n, name), strict=True):
-            assert allc[names_all.index(nm)] == tuple(int(v) for v in c)
+            assert allc[names_all.index(nm)] == c
+        ui = ui_colours(cfg, name, n)
+        lum = [luminance(c) for c in got]
+        assert ui["bg"] == got[lum.index(min(lum))] and ui["fg"] == got[lum.index(max(lum))]

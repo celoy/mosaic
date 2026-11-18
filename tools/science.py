@@ -97,7 +97,7 @@ def snapshot(sim: Sim, path: Path, size: float = 5.0) -> None:
 
     pal = palette_rgb(CFG, sim.palette)
     pm = hex_pixel_map(sim.graph, size, border=CFG["grid"]["border"])
-    rgb = render_rgb(pm, sim.colours, pal, ui_colours(CFG)["bg"])
+    rgb = render_rgb(pm, sim.colours, pal, ui_colours(CFG, None, len(pal))["bg"])
     pygame.image.save(pygame.surfarray.make_surface(rgb.swapaxes(0, 1)), str(path))
 
 

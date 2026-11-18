@@ -44,14 +44,16 @@ zoom_step = 1.25          # mouse wheel or +/- keys; drag the grid to pan; 0 res
 max_cell_px = 40.0        # largest hex circumradius when zoomed in
 
 [palette]
-default = "teal_coral"        # one of the [palettes] below; switch live from the viewer menu
-menu_top = 10            # palette menu: first column = the 10 best-separated palettes
+default = "eggshell_peach"        # one of the [palettes] below; switch live from the viewer menu
+menu = ["eggshell_peach", "dusk_coral", "grape_sunflower", "teal_coral", "candy"]   # others: --palette NAME
 show_glyphs = false       # symbols on the equation blocks (toggle in the viewer)
 glyphs = ["circle", "triangle", "square", "diamond", "cross", "ring", "bar", "x"]
-background = "#1E1E24"
+background = "#1E1E24"   # only used where no palette applies
+chart_lightness = 0.5     # chart background: grey of this HLS lightness ...
+chart_tint = 0.25         # ... with the darkest colour's hue at this fraction of its saturation
 # for these long palettes a level with n colours uses the n best-separated ones (largest
-# smallest Delta E, normal vision, over all pairs and against the background; ties broken by
-# deuteranopia, then protanopia)
+# smallest pairwise Delta E, normal vision; ties broken by deuteranopia, then protanopia).
+# Every palette themes the interface: darkest colour = background, lightest = text.
 best_subset = ["strawberry_slate", "jasmine_sage", "olive_almond", "charcoal_brick", "dusk_coral", "neon_turquoise"]
 
 [palettes]

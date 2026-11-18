@@ -41,14 +41,11 @@ from mosaic_model import GoalTracker, Level, Sim, load_level, make_sim  # noqa: 
 from mosaic_model.graph import SQRT3  # noqa: E402
 from mosaic_model.raster import fit_size, render_rgb, view_pixel_map, world_centre  # noqa: E402
 from mosaic_model.reactions import ARITY, Block, Reaction  # noqa: E402
-from palette import colour_names, glyphs, palette_rgb, ranked_names, ui_colours  # noqa: E402
+from palette import colour_names, glyphs, menu_names, palette_rgb, ui_colours  # noqa: E402
 
 RB = 16.0  # circumradius of an equation block (hexagon), px
 GAP = 1.08  # spacing factor between neighbouring blocks (1 = touching)
 DARK = (25, 25, 30)  # outlines and glyphs drawn on top of cell colours
-METER_FACE = (232, 222, 190)
-METER_INK = (40, 36, 30)
-NEEDLE = (200, 40, 30)
 EQ_DX = 64  # x offset of the first equation block from the panel edge (room for the meter)
 SHAPE_CYCLE = [("cell", True), ("edge", True), ("vertex", True), ("vertex", False)]
 SHAPE_LABEL = {("cell", True): "cell", ("edge", True): "edge", ("vertex", True): "vertex cw"}
@@ -85,7 +82,7 @@ class Viewer:
         self.palette_name = pal["default"]
         self.pal = palette_rgb(cfg, level.palette, self.palette_name)
         self.cnames = colour_names(cfg, level.palette, self.palette_name)
-        self.ui = ui_colours(cfg, self.palette_name)  # interface colours follow the palette
+        self.ui = ui_colours(cfg, self.palette_name, level.palette)  # from the palette
         self.bg = self.ui["bg"]
         self.glyphs = glyphs(cfg, level.palette)
         self.show_glyphs = bool(pal.get("show_glyphs", False))
@@ -350,42 +347,48 @@ class Viewer:
             if c == self.paint:
                 pg.draw.polygon(self.screen, self.ui["fg"], self._hex_points(cc, 15))
                 pg.draw.polygon(self.screen, self.bg, self._hex_points(cc, 13))
-            pg.draw.polygon(self.screen, self.pal[c], self._hex_points(cc, 11))
+            self._swatch(cc, 11, c)
             self.buttons[f"paint{c}"] = pg.Rect(x, y, 26, 26)
             x += 30
         self._text("click: paint   right-click: lock", (x + 10, y + 7), self.small, self.ui["mid"])
         return y
 
     def _draw_menu(self) -> None:
-        """Palette dropdown, drawn last (on top), in two columns: the `top` palettes with the
-        best colour separation for this level's number of colours, ranked, with their worst
-        Delta E (pairs and background, worst of normal / deuteranopia / protanopia); then
-        the others, also ranked."""
+        """Palette dropdown, drawn last (on top): the palettes of [palette] menu, each with
+        its worst Delta E for this level's number of colours (smallest pairwise difference,
+        worst of normal vision / deuteranopia / protanopia) and its colours."""
         if not self.menu_open:
             return
         pg = self.pg
-        if getattr(self, "_ranked", None) is None:
-            self._ranked = ranked_names(self.cfg, self.level.palette)
-        top = self.cfg["palette"].get("menu_top", 10)
+        if getattr(self, "_menu", None) is None:
+            self._menu = menu_names(self.cfg, self.level.palette)
         r0 = self.buttons["palette"]
-        w = 350
-        x0 = self.screen.get_width() - 2 * w - 8
-        y0 = r0.bottom + 2
-        pg.draw.rect(self.screen, self.ui["bg"], pg.Rect(x0, y0, 2 * w, 18))
-        self._text(f"best {top}: worst dE", (x0 + 4, y0 + 2), self.small, self.ui["mid"])
-        self._text("others", (x0 + w + 4, y0 + 2), self.small, self.ui["mid"])
-        for k, (name, de) in enumerate(self._ranked):
-            col, row = (0, k) if k < top else (1, k - top)
-            r = pg.Rect(x0 + col * w, y0 + 18 + row * 26, w, 26)
+        w = 330
+        y = r0.bottom + 2
+        for name, de in self._menu:
+            r = pg.Rect(r0.x, y, w, 30)
             sel = name == self.palette_name
             pg.draw.rect(self.screen, self.ui["btn_on"] if sel else self.ui["btn"], r)
             pg.draw.rect(self.screen, self.ui["mid"], r, 1)
-            self._text(name, (r.x + 8, r.y + 6), self.small)
-            self._text(f"{de:3.0f}", (r.x + 132, r.y + 6), self.small, self.ui["mid"])
+            self._text(name, (r.x + 8, r.y + 8), self.small)
+            self._text(f"dE {de:2.0f}", (r.x + 120, r.y + 8), self.small, self.ui["mid"])
             sw = palette_rgb(self.cfg, self.level.palette, name)
+            dk = ui_colours(self.cfg, name, self.level.palette)["dark"]
             for j, c in enumerate(sw[:8]):
-                pg.draw.rect(self.screen, c, pg.Rect(r.x + 162 + j * 23, r.y + 5, 19, 16))
+                cc = (r.x + 180 + j * 24, r.centery)
+                if j == dk:
+                    pg.draw.polygon(self.screen, self.ui["fg"], self._hex_points(cc, 11))
+                pg.draw.polygon(self.screen, c, self._hex_points(cc, 9))
             self.buttons[f"pal:{name}"] = r
+            y += 30
+
+    def _swatch(self, c: tuple[float, float], rad: float, colour: int) -> None:
+        """Hex of a cell colour on the interface; the darkest colour (= the background) gets
+        a light contour so that it stays visible."""
+        pg = self.pg
+        if colour == self.ui["dark"]:
+            pg.draw.polygon(self.screen, self.ui["fg"], self._hex_points(c, rad + 2))
+        pg.draw.polygon(self.screen, self.pal[colour], self._hex_points(c, rad))
 
     @staticmethod
     def _hex_points(c: tuple[float, float], rad: float) -> list[tuple[float, float]]:
@@ -463,7 +466,7 @@ class Viewer:
         locked = b in rs.locked
         if locked:  # a fixed block sits in a grey frame, like a tile set in the panel
             pg.draw.polygon(self.screen, self.ui["mid"], self._hex_points(c, RB + 3))
-        pg.draw.polygon(self.screen, self.pal[col], self._hex_points(c, RB))
+        self._swatch(c, RB, col)
         if locked:
             pg.draw.polygon(self.screen, DARK, self._hex_points(c, RB), 2)
         if self.show_glyphs:
@@ -524,7 +527,8 @@ class Viewer:
         pg = self.pg
         lc = self.cfg["lamps"]
         r = pg.Rect(x, cy - 15, 52, 30)
-        pg.draw.rect(self.screen, METER_FACE, r, border_radius=4)
+        face, ink = self.ui["fg"], self.ui["bg"]
+        pg.draw.rect(self.screen, face, r, border_radius=4)
         px, py = r.centerx, r.bottom - 3
         rad = 22.0
         a0, a1 = math.radians(150), math.radians(30)  # left and right ends of the scale
@@ -534,7 +538,7 @@ class Viewer:
             ca, sa = math.cos(a), math.sin(a)
             pg.draw.line(
                 self.screen,
-                METER_INK,
+                ink,
                 (px + 0.80 * rad * ca, py - 0.80 * rad * sa),
                 (px + rad * ca, py - rad * sa),
                 1,
@@ -546,11 +550,11 @@ class Viewer:
             )
             for t in range(13)
         ]
-        pg.draw.aalines(self.screen, METER_INK, False, pts)
+        pg.draw.aalines(self.screen, ink, False, pts)
         a = a0 + (a1 - a0) * f
         tip = (px + (rad - 1) * math.cos(a), py - (rad - 1) * math.sin(a))
-        pg.draw.line(self.screen, NEEDLE, (px, py), tip, 2)
-        pg.draw.circle(self.screen, METER_INK, (px, py), 3)
+        pg.draw.line(self.screen, self.ui["accent"], (px, py), tip, 2)
+        pg.draw.circle(self.screen, ink, (px, py), 3)
 
     def _draw_chart(self, y: int) -> None:
         pg = self.pg
@@ -590,7 +594,7 @@ class Viewer:
             for c in range(xs.shape[1]):
                 pts = [px(t, v) for t, v in zip(ts[sel], xs[sel, c], strict=True)]
                 pg.draw.lines(self.screen, self.pal[c], False, pts, 2)
-        self._text("fractions vs time", (x + 4, y + 3), self.small, self.ui["mid"])
+        self._text("fractions vs time", (x + 4, y + 3), self.small, self.ui["fg"])
         # goals
         yy = y + h + 10
         for k, goal in enumerate(self.level.goals):
@@ -629,10 +633,7 @@ class Viewer:
         """Draw text pieces separated by spaces; an int is a hex swatch of that colour."""
         for s_ in segs:
             if isinstance(s_, int):
-                c = (x + 8, y + 7)
-                pg = self.pg
-                pg.draw.polygon(self.screen, self.ui["mid"], self._hex_points(c, 9))
-                pg.draw.polygon(self.screen, self.pal[s_], self._hex_points(c, 8))
+                self._swatch((x + 8, y + 7), 8, s_)
                 x += 20
             else:
                 surf = self.font.render(s_, True, col or self.ui["fg"])
@@ -781,7 +782,7 @@ class Viewer:
         self.palette_name = name
         self.pal = palette_rgb(self.cfg, self.level.palette, name)
         self.cnames = colour_names(self.cfg, self.level.palette, name)
-        self.ui = ui_colours(self.cfg, name)
+        self.ui = ui_colours(self.cfg, name, self.level.palette)
         self.bg = self.ui["bg"]
 
     def _notify(self, msg: str) -> None:

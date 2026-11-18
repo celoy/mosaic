@@ -71,23 +71,19 @@ def luminance(rgb) -> float:
 
 
 @functools.lru_cache(maxsize=256)
-def _best_subset(cols: tuple, n: int, bg: tuple) -> tuple[int, ...]:
-    """Indices (in palette order) of the n colours whose smallest Delta E (normal vision),
-    over all pairs and against the interface background bg, is largest; ties broken by the
-    colour-blind views."""
+def _best_subset(cols: tuple, n: int) -> tuple[int, ...]:
+    """Indices (in palette order) of the n colours whose smallest pairwise Delta E (normal
+    vision) is largest; ties broken by the colour-blind views."""
     labs = [lab_views(c) for c in cols]
-    lbg = lab_views(bg)
 
     def score(sub):
-        out = []
-        for v in range(3):
-            pairs = [
+        return tuple(
+            min(
                 float(np.linalg.norm(labs[i][v] - labs[j][v]))
                 for i, j in itertools.combinations(sub, 2)
-            ]
-            to_bg = [float(np.linalg.norm(labs[i][v] - lbg[v])) for i in sub]
-            out.append(min(pairs + to_bg))
-        return tuple(out)
+            )
+            for v in range(3)
+        )
 
     return max(itertools.combinations(range(len(cols)), n), key=score)
 
@@ -97,27 +93,53 @@ def _pick(cfg: dict, name: str, n: int) -> list[int]:
     [palette] best_subset with more than n colours use their best-separated n colours."""
     cols = [_hex(c) for c in cfg["palettes"][name]]
     if len(cols) > n >= 2 and name in cfg["palette"].get("best_subset", []):
-        return list(_best_subset(tuple(cols), n, _hex(cfg["palette"]["background"])))
+        return list(_best_subset(tuple(cols), n))
     return list(range(len(cols)))
 
 
-def ui_colours(cfg: dict, name: str | None = None) -> dict[str, tuple[int, int, int]]:
-    """Interface colours: bg, fg (text) and tones mixed between them (mid for secondary
-    text, btn / btn_on for buttons, chart / line for the chart). `name` is accepted so a
-    palette could theme the interface later; for now every palette uses the dark default."""
-    bg, fg = _hex(cfg["palette"]["background"]), (235, 235, 240)
+def ui_colours(cfg: dict, name: str | None = None, n: int = 5) -> dict:
+    """Interface colours taken from the palette's n cell colours: bg = the darkest, fg (text,
+    meter face) = the lightest, accent (meter needle) = the most chromatic of the others;
+    tones mixed between bg and fg: mid (secondary text), btn / btn_on (buttons); chart and
+    line: a mid grey with the hue of the darkest colour. Also the cell-colour indices
+    "dark" and "light" (the darkest colour gets a light contour on the interface)."""
+    cols = [tuple(int(v) for v in c) for c in palette_rgb(cfg, n, name)]
+    lum = [luminance(c) for c in cols]
+    dark = int(np.argmin(lum))
+    light = int(np.argmax(lum))
+    bg, fg = cols[dark], cols[light]
+    others = [k for k in range(len(cols)) if k not in (dark, light)]
+
+    def chroma(c) -> float:
+        lab = lab_views(c)[0]
+        return float(np.hypot(lab[1], lab[2]))
+
+    accent = cols[max(others, key=lambda k: chroma(cols[k]))] if others else fg
 
     def mix(f: float) -> tuple[int, int, int]:
         return tuple(int(round(b + f * (t - b))) for b, t in zip(bg, fg, strict=True))  # type: ignore[return-value]
 
+    # chart: a mid grey tinted with the hue of the darkest colour, so that dark and light
+    # curves both stand out
+    h, _, sat = colorsys.rgb_to_hls(*(v / 255 for v in bg))
+    cs = cfg["palette"].get("chart_tint", 0.25) * sat
+
+    def tinted(lightness: float) -> tuple[int, int, int]:
+        return tuple(int(round(255 * v)) for v in colorsys.hls_to_rgb(h, lightness, cs))  # type: ignore[return-value]
+
+    lc = cfg["palette"].get("chart_lightness", 0.5)
     return {
         "bg": bg,
         "fg": fg,
-        "mid": mix(0.55),
-        "btn": mix(0.13),
-        "btn_on": mix(0.30),
-        "chart": mix(0.07),
-        "line": mix(0.18),
+        "accent": accent,
+        "mid": mix(0.6),
+        "btn": mix(0.15),
+        "btn_on": mix(0.32),
+        "chart": tinted(lc),
+        "line": tinted(lc + 0.07),
+        "dark": dark,
+        "light": light,
+        "contrast": (max(lum) + 0.05) / (min(lum) + 0.05),
     }
 
 
@@ -193,16 +215,16 @@ def colour_names(cfg: dict, n: int, name: str | None = None) -> list[str]:
 
 
 def worst_delta_e(cfg: dict, n: int, name: str) -> float:
-    """Smallest Delta E of the palette's n cell colours, over all pairs and against the
-    interface background, in the worst of normal vision, deuteranopia and protanopia."""
-    cols = list(palette_rgb(cfg, n, name)) + [_hex(cfg["palette"]["background"])]
+    """Smallest pairwise Delta E of the palette's n cell colours, in the worst of normal
+    vision, deuteranopia and protanopia."""
+    cols = list(palette_rgb(cfg, n, name))
     return min(min_delta_e(cols, v) for v in range(3))
 
 
-def ranked_names(cfg: dict, n: int) -> list[tuple[str, float]]:
-    """Palettes sorted by worst_delta_e for n colours, best first; greyscale last."""
-    out = [(nm, worst_delta_e(cfg, n, nm)) for nm in cfg["palettes"] if nm != "greyscale"]
-    out.sort(key=lambda t: -t[1])
-    if "greyscale" in cfg["palettes"]:
-        out.append(("greyscale", worst_delta_e(cfg, n, "greyscale")))
-    return out
+def menu_names(cfg: dict, n: int) -> list[tuple[str, float]]:
+    """Palettes offered in the viewer menu ([palette] menu, default first), each with its
+    worst_delta_e for n colours."""
+    names = list(cfg["palette"].get("menu", cfg["palettes"]))
+    d = cfg["palette"]["default"]
+    names = [d] + [nm for nm in names if nm != d]
+    return [(nm, worst_delta_e(cfg, n, nm)) for nm in names]
