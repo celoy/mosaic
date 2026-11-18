@@ -190,3 +190,19 @@ def colour_names(cfg: dict, n: int, name: str | None = None) -> list[str]:
         if seen[s] > 1:
             out[k] = f"{s} {seen[s]}"
     return out
+
+
+def worst_delta_e(cfg: dict, n: int, name: str) -> float:
+    """Smallest Delta E of the palette's n cell colours, over all pairs and against the
+    interface background, in the worst of normal vision, deuteranopia and protanopia."""
+    cols = list(palette_rgb(cfg, n, name)) + [_hex(cfg["palette"]["background"])]
+    return min(min_delta_e(cols, v) for v in range(3))
+
+
+def ranked_names(cfg: dict, n: int) -> list[tuple[str, float]]:
+    """Palettes sorted by worst_delta_e for n colours, best first; greyscale last."""
+    out = [(nm, worst_delta_e(cfg, n, nm)) for nm in cfg["palettes"] if nm != "greyscale"]
+    out.sort(key=lambda t: -t[1])
+    if "greyscale" in cfg["palettes"]:
+        out.append(("greyscale", worst_delta_e(cfg, n, "greyscale")))
+    return out

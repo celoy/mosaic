@@ -41,7 +41,7 @@ from mosaic_model import GoalTracker, Level, Sim, load_level, make_sim  # noqa: 
 from mosaic_model.graph import SQRT3  # noqa: E402
 from mosaic_model.raster import fit_size, render_rgb, view_pixel_map, world_centre  # noqa: E402
 from mosaic_model.reactions import ARITY, Block, Reaction  # noqa: E402
-from palette import colour_names, glyphs, names, palette_rgb, ui_colours  # noqa: E402
+from palette import colour_names, glyphs, palette_rgb, ranked_names, ui_colours  # noqa: E402
 
 RB = 16.0  # circumradius of an equation block (hexagon), px
 GAP = 1.08  # spacing factor between neighbouring blocks (1 = touching)
@@ -357,22 +357,35 @@ class Viewer:
         return y
 
     def _draw_menu(self) -> None:
-        """Palette dropdown, drawn last (on top); each entry shows a swatch."""
+        """Palette dropdown, drawn last (on top), in two columns: the `top` palettes with the
+        best colour separation for this level's number of colours, ranked, with their worst
+        Delta E (pairs and background, worst of normal / deuteranopia / protanopia); then
+        the others, also ranked."""
         if not self.menu_open:
             return
         pg = self.pg
+        if getattr(self, "_ranked", None) is None:
+            self._ranked = ranked_names(self.cfg, self.level.palette)
+        top = self.cfg["palette"].get("menu_top", 10)
         r0 = self.buttons["palette"]
-        y = r0.bottom + 2
-        for name in names(self.cfg):
-            r = pg.Rect(r0.x, y, 330, 26)
-            pg.draw.rect(self.screen, self.ui["btn"], r)
+        w = 350
+        x0 = self.screen.get_width() - 2 * w - 8
+        y0 = r0.bottom + 2
+        pg.draw.rect(self.screen, self.ui["bg"], pg.Rect(x0, y0, 2 * w, 18))
+        self._text(f"best {top}: worst dE", (x0 + 4, y0 + 2), self.small, self.ui["mid"])
+        self._text("others", (x0 + w + 4, y0 + 2), self.small, self.ui["mid"])
+        for k, (name, de) in enumerate(self._ranked):
+            col, row = (0, k) if k < top else (1, k - top)
+            r = pg.Rect(x0 + col * w, y0 + 18 + row * 26, w, 26)
+            sel = name == self.palette_name
+            pg.draw.rect(self.screen, self.ui["btn_on"] if sel else self.ui["btn"], r)
             pg.draw.rect(self.screen, self.ui["mid"], r, 1)
             self._text(name, (r.x + 8, r.y + 6), self.small)
+            self._text(f"{de:3.0f}", (r.x + 132, r.y + 6), self.small, self.ui["mid"])
             sw = palette_rgb(self.cfg, self.level.palette, name)
-            for k, c in enumerate(sw):
-                pg.draw.rect(self.screen, c, pg.Rect(r.x + 130 + k * 22, r.y + 5, 18, 16))
+            for j, c in enumerate(sw[:8]):
+                pg.draw.rect(self.screen, c, pg.Rect(r.x + 162 + j * 23, r.y + 5, 19, 16))
             self.buttons[f"pal:{name}"] = r
-            y += 26
 
     @staticmethod
     def _hex_points(c: tuple[float, float], rad: float) -> list[tuple[float, float]]:

@@ -45,6 +45,7 @@ max_cell_px = 40.0        # largest hex circumradius when zoomed in
 
 [palette]
 default = "teal_coral"        # one of the [palettes] below; switch live from the viewer menu
+menu_top = 10            # palette menu: first column = the 10 best-separated palettes
 show_glyphs = false       # symbols on the equation blocks (toggle in the viewer)
 glyphs = ["circle", "triangle", "square", "diamond", "cross", "ring", "bar", "x"]
 background = "#1E1E24"

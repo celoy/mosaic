@@ -26,6 +26,7 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: 14 palettes from Chris added with colour names; the five with more than 5 colours (split_ui) give their darkest colour to the background and their lightest to the text; interface tones follow the palette. Separation table in the session report.
 - 2026-11-18: Chris: long palettes no longer give colours to the interface; a level with n colours uses the n best-separated (largest smallest Delta E incl. against the background), list best_subset in toy/viewer.toml.
 - 2026-11-18: 11 more palettes from Chris (duplicates of stormy_almond and teal_coral skipped); strawberry_slate (7 colours) in best_subset.
+- 2026-11-18: palette menu ranked by worst Delta E (pairs and background, worst of normal / deuteranopia / protanopia) for the level's number of colours: best 10 in the first column.
 
 ## Deadline and jam
 
