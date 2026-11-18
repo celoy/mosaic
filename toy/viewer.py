@@ -11,7 +11,7 @@ Zoom: mouse wheel or +/- (about the cursor), drag the grid to pan, 0 to see the 
 (hextorus = hexagon with opposite sides glued; hexagon = open hexagon).
 Swaps are logged to runs/viewer/<level>_<time>/session.json.
 
-Sandbox (design tool): python toy/viewer.py --sandbox [level.json] [--colours 5]
+Sandbox (design tool): python toy/viewer.py --sandbox [level.json] [--colours 5] [--start 3]
   Mode: edit   click a block to paint it with the chosen colour, right-click to lock it,
                click the shape / k buttons of a slot to change it (right-click: backwards;
                k = 0 switches the slot off). Works while running or paused.
@@ -87,6 +87,8 @@ class Viewer:
         self.glyphs = glyphs(cfg, level.palette)
         self.show_glyphs = bool(pal.get("show_glyphs", False))
         self.menu_open = False
+        fr = level.start.get("fractions", [1.0] * level.palette)
+        self.start_n = sum(1 for f in fr if f > 0)  # random start: colours 0 .. start_n - 1
         self.rb = RB  # block radius, shrunk by _fit_rows when many slots do not fit
         self.row_gap = 10.0
         self.row_scale = 1.0
@@ -332,9 +334,10 @@ class Viewer:
         """Sandbox rows: mode, random start, save; in edit mode, the paint colours."""
         x = self.panel_x
         for key, text, w in (
-            ("mode", f"Mode: {'edit' if self.edit else 'play'}", 110),
-            ("random", "Random start", 120),
-            ("savelevel", "Save level", 100),
+            ("mode", f"Mode: {'edit' if self.edit else 'play'}", 100),
+            ("random", "Random start", 112),
+            ("startn", f"Start: {self.start_n} col.", 100),
+            ("savelevel", "Save level", 92),
         ):
             self._button(key, text, x, y, w, active=(key == "mode" and self.edit))
             x += w + 8
@@ -754,10 +757,11 @@ class Viewer:
         self._edited("rate", slot=i, rate=r.rate)
 
     def random_start(self) -> None:
-        """New uniform random mosaic (new seed), current reactions kept; time restarts."""
+        """New uniform random mosaic of colours 0 .. start_n - 1 (new seed), current reactions
+        kept; time restarts."""
         self.seed += 1
         rng = np.random.default_rng(self.seed)
-        self.start_cols = rng.integers(0, self.level.palette, self.sim0.graph.n_cells).tolist()
+        self.start_cols = rng.integers(0, self.start_n, self.sim0.graph.n_cells).tolist()
         self.reset()
 
     def save_level(self, folder: Path | None = None) -> Path:
@@ -783,7 +787,12 @@ class Viewer:
                 for r in (rs.reactions[i] for i in keep)
             ],
             "locked": sorted([new_index[b[0]], b[1], b[2]] for b in rs.locked if b[0] in new_index),
-            "start": {"seed": self.seed, "fractions": [round(1 / n, 6)] * n, "burn_in_sweeps": 300},
+            "start": {
+                "seed": self.seed,
+                "fractions": [round(1 / self.start_n, 6)] * self.start_n
+                + [0.0] * (n - self.start_n),
+                "burn_in_sweeps": 300,
+            },
             "goals": [],
             "fail": [],
             "meta": {"from": "sandbox", "source": str(self.level.path or "")},
@@ -818,6 +827,9 @@ class Viewer:
             self.edit = not self.edit
             self.selected = None
         elif key == "random":
+            self.random_start()
+        elif key == "startn":  # left click: one more colour, right click: one fewer
+            self.start_n = (self.start_n - 1 + d) % self.level.palette + 1
             self.random_start()
         elif key == "savelevel":
             self.save_level()
@@ -964,17 +976,19 @@ class Viewer:
             print(f"session saved to {self.save()}", flush=True)
 
 
-def sandbox_level(cfg: dict, colours: int | None) -> Level:
-    """Fresh sandbox: the [sandbox] defaults of viewer.toml, uniform random start."""
+def sandbox_level(cfg: dict, colours: int | None, start: int | None = None) -> Level:
+    """Fresh sandbox: the [sandbox] defaults of viewer.toml; uniform random start with the
+    first `start` colours only ([sandbox] start_colours by default)."""
     sb = cfg["sandbox"]
     n = colours or sb["colours"]
+    m = min(n, start or sb.get("start_colours", n))
     return Level(
         id="sandbox",
         grid=dict(sb["grid"]),
         palette=n,
         reactions=[dict(r) for r in sb["reactions"]],
         locked=[],
-        start={"seed": 1, "fractions": [1 / n] * n, "burn_in_sweeps": 0},
+        start={"seed": 1, "fractions": [1 / m] * m + [0.0] * (n - m), "burn_in_sweeps": 0},
         goals=[],
         title="design tool",
     )
@@ -998,6 +1012,9 @@ def main() -> None:
     ap.add_argument("level", type=Path, nargs="?", help="level JSON (optional with --sandbox)")
     ap.add_argument("--sandbox", action="store_true", help="design tool: edit the reactions")
     ap.add_argument("--colours", type=int, default=None, help="sandbox: number of colours")
+    ap.add_argument(
+        "--start", type=int, default=None, help="sandbox: random start uses colours 0..START-1"
+    )
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--shuffled", action="store_true", help="well-mixed control")
     ap.add_argument("--n", type=int, default=None, help="override the grid size")
@@ -1013,7 +1030,7 @@ def main() -> None:
     cfg = load_cfg()
     if a.level is None and not a.sandbox:
         ap.error("give a level, or --sandbox")
-    level = load_level(a.level) if a.level else sandbox_level(cfg, a.colours)
+    level = load_level(a.level) if a.level else sandbox_level(cfg, a.colours, a.start)
     if a.sandbox:
         level = pad_slots(level, cfg, a.colours)
     if a.n:
