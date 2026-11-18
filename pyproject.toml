@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mosaic-model"
+version = "0.0.1"
+description = "Python twin of the Mosaic Shift reaction mosaic (Game Off 2026)"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["numpy", "pygame-ce"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["model"]
+include = ["mosaic_model*"]
+
+[tool.pytest.ini_options]
+testpaths = ["model/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["model", "tools", "toy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
