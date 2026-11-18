@@ -283,3 +283,16 @@ def test_hex_pixel_map_covers_cells_at_their_centres() -> None:
         cx = xs[sel].mean() + 0.5 - size * np.sqrt(3) / 2
         cy = ys[sel].mean() + 0.5 - size
         assert np.allclose([cx, cy], g.centers[cell] * size, atol=1.0)
+
+
+# ---- partial sweeps ---------------------------------------------------------------------------
+def test_advance_partial_sweeps_keeps_time_and_sweep_count() -> None:
+    g = hex_torus(8)
+    rs = ReactionSet([Reaction("edge", [0, 1], [1, 0], 2.0), Reaction("cell", [0], [0], 1.0)], 2)
+    sim = Sim(g, rs, initial_colours(g.n_cells, [0.5, 0.5], 0), seed=1)
+    for _ in range(37):
+        sim.advance(0.013)
+    assert sim.t == pytest.approx(37 * 0.013, abs=1.0 / (sim.K * sim.n_elig))
+    assert sim.sweeps == int(sim.t * sim.K)
+    sim.sweep()  # finishes the partial sweep: time lands on a whole number of sweeps
+    assert sim.t * sim.K == pytest.approx(round(sim.t * sim.K))

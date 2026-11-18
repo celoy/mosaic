@@ -7,9 +7,10 @@ grid_width = 780          # pixels available for the hex grid (left column)
 fps = 60
 
 [speed]
-base_sweeps_per_s = 4.0   # x1; keys 1/2/3 give x1, x4, x16
+base_time_per_s = 1.0     # x1 = this many sim time units per wall second
 multipliers = [1, 4, 16]
 frame_budget_ms = 30.0    # max simulation time per frame (x16 may fall behind)
+chunk_attempts = 2048     # attempts between chart samples (partial sweeps)
 
 [lamps]
 tau = 1.0                 # smoothing time of the firing rate (sim time units)
@@ -24,3 +25,4 @@ height = 220
 colours = ["#E69F00", "#56B4E9", "#009E73", "#CC79A7"]
 glyphs = ["circle", "triangle", "square", "diamond"]
 background = "#1E1E24"
+empty = "#3A3A46"          # colour drawn for a level's "empty" colour

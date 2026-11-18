@@ -51,6 +51,8 @@ class Sim:
         self.shuffle = shuffle
         self.t = 0.0
         self.sweeps = 0
+        self._pos = 0  # attempts done in the current sweep
+        self._carry = 0.0  # fractional attempts owed by advance()
         self.fires = [0] * len(reactions.reactions)
         self._cells = [(i,) for i in range(graph.n_cells)]
         self._edges = [tuple(e) for e in graph.edges.tolist()]
@@ -87,16 +89,39 @@ class Sim:
 
     # ---- dynamics -----------------------------------------------------------------------
     def sweep(self, n: int = 1) -> None:
+        """Complete n sweeps (the first one finishes a partial sweep, if any)."""
         for _ in range(n):
-            if self.K > 0 and self.n_elig > 0:
+            self.attempts(self.n_elig - self._pos)
+
+    def attempts(self, n: int) -> None:
+        """Perform n attempts; sim time advances by 1 / (K * n_elig) per attempt. Sweep
+        boundaries (sweep counter, per-sweep shuffling) are honoured inside the call."""
+        while n > 0:
+            chunk = min(n, self.n_elig - self._pos)
+            if self.K > 0 and chunk > 0:
                 if self.shuffled and self.shuffle == "attempt":
-                    self._attempts_mixed(self.n_elig)
+                    self._attempts_mixed(chunk)
                 else:
-                    self._attempts(self.n_elig)
-                self.t += 1.0 / self.K
-            if self.shuffled and self.shuffle == "sweep":
-                self.col = self.rng.permutation(self.col).tolist()
-            self.sweeps += 1
+                    self._attempts(chunk)
+                self.t += chunk / (self.K * self.n_elig)
+            self._pos += chunk
+            n -= chunk
+            if self._pos >= self.n_elig:
+                self._pos = 0
+                self.sweeps += 1
+                if self.shuffled and self.shuffle == "sweep":
+                    self.col = self.rng.permutation(self.col).tolist()
+
+    def advance(self, dt: float) -> int:
+        """Advance sim time by about dt (whole attempts; the remainder is carried over).
+        Returns the number of attempts made."""
+        if self.K <= 0:
+            return 0
+        self._carry += dt * self.K * self.n_elig
+        n = int(self._carry)
+        self._carry -= n
+        self.attempts(n)
+        return n
 
     def _attempts(self, n: int) -> None:
         rng = self.rng

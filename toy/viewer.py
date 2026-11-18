@@ -3,8 +3,10 @@
     python toy/viewer.py levels/T02_rps.json [--seed S] [--shuffled]
     python toy/viewer.py levels/T02_rps.json --smoke 120   # headless test, saves a PNG
 
-Click two unlocked blocks to swap them. Space: pause. 1/2/3: speed x1/x4/x16. R: restart.
-S: screenshot. Esc: quit. Swaps are logged to runs/viewer/<level>_<time>/session.json.
+Click two unlocked blocks to swap them (only while running, not while paused).
+Buttons or keys: Space pause, 1/2/3 speed x1/x4/x16, R restart, S screenshot, Esc quit.
+--n N overrides the grid size (e.g. --n 128 to see May-Leonard spirals).
+Swaps are logged to runs/viewer/<level>_<time>/session.json.
 """
 
 from __future__ import annotations
@@ -52,13 +54,17 @@ class Viewer:
         w, h = cfg["window"]["width"], cfg["window"]["height"]
         self.screen = pygame.display.set_mode((w, h))
         pygame.display.set_caption(f"Mosaic Shift viewer: {level.id}")
-        self.font = pygame.font.SysFont("helvetica,arial", 15)
-        self.small = pygame.font.SysFont("helvetica,arial", 12)
-        self.big = pygame.font.SysFont("helvetica,arial", 28, bold=True)
+        # pygame's bundled font: no system font lookup (fc-list can hang on macOS)
+        self.font = pygame.font.Font(None, 20)
+        self.small = pygame.font.Font(None, 17)
+        self.big = pygame.font.Font(None, 36)
         pal = cfg["palette"]
         self.pal = np.array([pygame.Color(c)[:3] for c in pal["colours"]])
         self.bg = pygame.Color(pal["background"])[:3]
-        self.glyphs = pal["glyphs"]
+        self.glyphs = list(pal["glyphs"])
+        if level.empty is not None:
+            self.pal[level.empty] = pygame.Color(pal["empty"])[:3]
+            self.glyphs[level.empty] = "empty"
 
         t0 = time.perf_counter()
         print(f"burn-in: {level.start.get('burn_in_sweeps', 0)} sweeps ...", flush=True)
@@ -77,6 +83,9 @@ class Viewer:
         self.restarts = 0
         self.session: list[dict] = []
         self.run_dir: Path | None = None
+        self.buttons: dict[str, object] = {}
+        self.notice = ""
+        self.notice_until = 0.0
         self.reset(first=True)
 
     # ---- state ------------------------------------------------------------------------------
@@ -117,22 +126,27 @@ class Viewer:
         print(f"swap at sweep {self.sim.sweeps} (t={self.sim.t:.2f}): {a} <-> {b}", flush=True)
 
     def step(self, dt_wall: float) -> None:
+        """Advance base_time_per_s * multiplier sim time units per wall second, in chunks of
+        attempts (partial sweeps), within a per-frame time budget."""
         if self.paused:
             return
         sp = self.cfg["speed"]
-        target = sp["base_sweeps_per_s"] * sp["multipliers"][self.speed_i]
-        self.due = min(self.due + dt_wall * target, max(2.0, 0.25 * target))
+        sim = self.sim
+        rate = sp["base_time_per_s"] * sp["multipliers"][self.speed_i]
+        self.due = min(self.due + dt_wall * rate, 0.25 * rate + 0.1)  # cap the backlog
         t_end = time.perf_counter() + sp["frame_budget_ms"] * 1e-3
-        done = 0
-        while self.due >= 1.0 and time.perf_counter() < t_end:
-            self.sim.sweep()
-            self.due -= 1.0
-            done += 1
-            self.hist_t.append(self.sim.t)
-            self.hist_x.append(self.sim.fractions())
-            self.tracker.update(self.sim.t, self.sim.counts())
+        t_start = sim.t
+        chunk = sp["chunk_attempts"]
+        while self.due > 0 and time.perf_counter() < t_end:
+            n = min(chunk, max(1, int(self.due * sim.K * sim.n_elig)))
+            t0 = sim.t
+            sim.attempts(n)
+            self.due -= sim.t - t0
+            self.hist_t.append(sim.t)
+            self.hist_x.append(sim.fractions())
+            self.tracker.update(sim.t, sim.counts())
         if dt_wall > 0:
-            self.rate_meas = 0.9 * self.rate_meas + 0.1 * done / dt_wall
+            self.rate_meas = 0.9 * self.rate_meas + 0.1 * (sim.t - t_start) / dt_wall
         # lamps: firing rate per cell per unit time, exponentially smoothed
         dt = self.sim.t - self.last_t
         if dt > 0:
@@ -174,12 +188,36 @@ class Viewer:
         state = "PAUSED" if self.paused else f"x{mult}"
         y += self._text(
             f"t = {sim.t:7.1f}   sweep {sim.sweeps}   {state}   "
-            f"{self.rate_meas:4.1f} sweeps/s   K={sim.K:g}   {mode}",
+            f"{self.rate_meas:4.2f} t/s   K={sim.K:g}   {mode}",
             (x, y + 2),
             self.small,
             GREY,
         )
-        return y + 4
+        return self._draw_buttons(y + 8)
+
+    def _draw_buttons(self, y: int) -> int:
+        pg = self.pg
+        x = self.panel_x
+        mults = self.cfg["speed"]["multipliers"]
+        labels = [("pause", "Play" if self.paused else "Pause", 70)]
+        labels += [(f"speed{i}", f"x{m:g}", 44) for i, m in enumerate(mults)]
+        labels += [("restart", "Restart", 70)]
+        self.buttons = {}
+        for key, text, w in labels:
+            r = pg.Rect(x, y, w, 26)
+            active = (key == "pause" and self.paused) or key == f"speed{self.speed_i}"
+            pg.draw.rect(self.screen, (80, 80, 96) if active else (50, 50, 60), r, border_radius=5)
+            pg.draw.rect(self.screen, GREY, r, 1, border_radius=5)
+            t = self.font.render(text, True, WHITE)
+            self.screen.blit(t, t.get_rect(center=r.center))
+            self.buttons[key] = r
+            x += w + 8
+        x = self.panel_x
+        if self.notice and time.time() < self.notice_until:
+            self._text(self.notice, (x, y + 31), self.small, (240, 180, 90))
+        elif self.paused:
+            self._text("paused: switching disabled", (x, y + 31), self.small, GREY)
+        return y + 46
 
     def _block_rects(self, y: int) -> tuple[dict, list[tuple[int, int, int]]]:
         """Rects for every block, and (reaction index, row y, row height)."""
@@ -198,14 +236,16 @@ class Viewer:
                         dx, dy = p * (B + GAP), 0
                     rects[(i, side, p)] = self.pg.Rect(xs + dx, y + dy, B, B)
             rows.append((i, y, h))
-            y += h + 14
+            y += h + 10
         return rects, rows
 
     def _draw_glyph(self, kind: str, rect, col) -> None:
         pg = self.pg
         c = rect.center
         s = rect.width * 0.22
-        if kind == "circle":
+        if kind == "empty":
+            pg.draw.circle(self.screen, GREY, c, s, 2)
+        elif kind == "circle":
             pg.draw.circle(self.screen, col, c, s)
         elif kind == "triangle":
             pg.draw.polygon(
@@ -259,10 +299,16 @@ class Viewer:
             pg.draw.circle(self.screen, col, (self.panel_x + 14, cy), 11)
             pg.draw.circle(self.screen, GREY, (self.panel_x + 14, cy), 11, 1)
             # arrow
+            # arrow: thickness grows with the rate k (relative to the largest rate)
             ax = self.panel_x + 40 + 2 * (B + GAP) + 8
-            pg.draw.line(self.screen, WHITE, (ax, cy), (ax + 32, cy), 2)
+            kmax = max(q.rate for q in self.sim.reactions.reactions) or 1.0
+            wdt = max(1, round(1 + 6 * r.rate / kmax))
+            hd = 4 + wdt
+            pg.draw.line(self.screen, WHITE, (ax, cy), (ax + 36 - hd, cy), wdt)
             pg.draw.polygon(
-                self.screen, WHITE, [(ax + 36, cy), (ax + 28, cy - 5), (ax + 28, cy + 5)]
+                self.screen,
+                WHITE,
+                [(ax + 38, cy), (ax + 36 - 2 * hd, cy - hd), (ax + 36 - 2 * hd, cy + hd)],
             )
             for b_, rect in rects.items():
                 if b_[0] == i:
@@ -320,8 +366,8 @@ class Viewer:
         for f in self.level.fail:
             yy += self._text(f"fail if: {self._goal_text(f)}", (x, yy), col=GREY) + 2
         help_ = (
-            "click two blocks to swap | space pause | 1/2/3 speed | R restart | "
-            "S screenshot | Esc quit"
+            "click two blocks to swap (while running) | thicker arrow = larger k | "
+            "keys: space 1 2 3 R S Esc"
         )
         self._text(help_, (x, self.screen.get_height() - 22), self.small, GREY)
 
@@ -348,11 +394,19 @@ class Viewer:
 
     # ---- input --------------------------------------------------------------------------------
     def click(self, pos) -> None:
+        for key, r in self.buttons.items():
+            if r.collidepoint(pos):
+                self.button(key)
+                return
         hit = next((b for b, r in getattr(self, "rects", {}).items() if r.collidepoint(pos)), None)
         if hit is None:
             self.selected = None
             return
+        if self.paused:
+            self._notify("paused: press Play to switch blocks")
+            return
         if hit in self.sim.reactions.locked:
+            self._notify("this block is locked")
             return
         if self.selected is None:
             self.selected = hit
@@ -361,6 +415,20 @@ class Viewer:
         else:
             self.swap(self.selected, hit)
             self.selected = None
+
+    def _notify(self, msg: str) -> None:
+        self.notice = msg
+        self.notice_until = time.time() + 2.0
+
+    def button(self, key: str) -> None:
+        if key == "pause":
+            self.paused = not self.paused
+            if self.paused:
+                self.selected = None
+        elif key.startswith("speed"):
+            self.speed_i = int(key[5:])
+        elif key == "restart":
+            self.reset()
 
     def save(self, screenshot: bool = False) -> Path:
         if self.run_dir is None:
@@ -395,17 +463,36 @@ class Viewer:
                     if ev.key == pg.K_ESCAPE:
                         running = False
                     elif ev.key == pg.K_SPACE:
-                        self.paused = not self.paused
+                        self.button("pause")
                     elif ev.key in (pg.K_1, pg.K_2, pg.K_3):
-                        self.speed_i = {pg.K_1: 0, pg.K_2: 1, pg.K_3: 2}[ev.key]
+                        self.button(f"speed{ {pg.K_1: 0, pg.K_2: 1, pg.K_3: 2}[ev.key] }")
                     elif ev.key == pg.K_r:
-                        self.reset()
+                        self.button("restart")
                     elif ev.key == pg.K_s:
                         self.save(screenshot=True)
             if smoke_frames:
                 dt = 1.0 / self.cfg["window"]["fps"]
                 if frame == 1:
                     self.speed_i = 2
+                if frame == smoke_frames // 2 - 2:
+                    # paused: a block click must not select or swap anything
+                    before = (
+                        self.sim.reactions.multiset(),
+                        [(r.inp[:], r.out[:]) for r in self.sim.reactions.reactions],
+                    )
+                    self.click(self.buttons["pause"].center)
+                    self.draw()
+                    blk = next(b for b in self.rects if b not in self.sim.reactions.locked)
+                    self.click(self.rects[blk].center)
+                    assert self.selected is None and self.paused
+                    after = (
+                        self.sim.reactions.multiset(),
+                        [(r.inp[:], r.out[:]) for r in self.sim.reactions.reactions],
+                    )
+                    assert before == after
+                    self.click(self.buttons["pause"].center)
+                    assert not self.paused
+                    print("smoke: pause blocks switching OK", flush=True)
                 if frame == smoke_frames // 2:
                     free = [
                         b for b in self.sim.reactions.blocks() if b not in self.sim.reactions.locked
@@ -431,6 +518,7 @@ def main() -> None:
     ap.add_argument("level", type=Path)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--shuffled", action="store_true", help="well-mixed control")
+    ap.add_argument("--n", type=int, default=None, help="override the grid size")
     ap.add_argument("--smoke", type=int, default=0, help="headless: run N frames, save PNG")
     a = ap.parse_args()
     if a.smoke:
@@ -438,7 +526,10 @@ def main() -> None:
     import pygame
 
     pygame.init()
-    v = Viewer(load_level(a.level), load_cfg(), a.seed, a.shuffled)
+    level = load_level(a.level)
+    if a.n:
+        level.grid = {**level.grid, "n": a.n}
+    v = Viewer(level, load_cfg(), a.seed, a.shuffled)
     v.loop(a.smoke)
     pygame.quit()
 

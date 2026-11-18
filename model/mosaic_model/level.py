@@ -26,6 +26,7 @@ class Level:
     fail: list[dict] = field(default_factory=list)
     meta: dict = field(default_factory=dict)
     title: str = ""
+    empty: int | None = None  # colour index drawn as empty space (optional)
     path: Path | None = None
 
     def reaction_set(self) -> ReactionSet:
@@ -56,6 +57,7 @@ def load_level(path: str | Path) -> Level:
         fail=d.get("fail", []),
         meta=d.get("meta", {}),
         title=d.get("title", ""),
+        empty=d.get("empty"),
         path=path,
     )
 

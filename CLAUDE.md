@@ -17,6 +17,7 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: brief written; nothing built yet.
 - 2026-11-18: Phase 0 done: repo celoy/mosaic (MIT), .venv + pytest, Godot 4.7.2 web benchmark ≈ 890 sweeps/s at 64 × 64 in headless Chrome (docs/phase0_benchmark.md); grid size 64 × 64 proposed. Waiting for go on Phase 1.
 - 2026-11-18: Phase 1 built (grid 64 × 64 confirmed by Chris): mosaic_model, tests 1–7 pass, science checks 1–4 run (docs/phase1_notes.md), pygame viewer, test levels T01–T03. Gate B pending: Chris plays the viewer.
+- 2026-11-18: Chris accepted the rate rule and per-attempt shuffled control. Added empty colour (T04 May–Leonard), viewer at 1 time unit/s with partial sweeps, Pause/speed/Restart buttons, swaps only while running, arrow thickness ∝ k, --n grid override. Spirals visible at n = 128, not at 64.
 
 ## Deadline and jam
 
@@ -67,14 +68,14 @@ Element counts (derived from Euler's formula for trivalent tilings, boundaries a
 Update rule (one attempt):
 1. Pick an element uniformly among all cells, edges and vertices that can host at least one current reaction shape (skip element types with no reaction).
 2. Read its colours. Use a lookup table indexed by the colour tuple to find matching reactions: for edges, both orientations; for vertices, the three cyclic rotations of the clockwise triple (and the mirror only for achiral reactions).
-3. If several reactions match, choose one with probability proportional to its rate; apply it with probability rate / max_rate.
+3. Every (reaction, orientation) that matches is a channel firing at rate k (so A|A → … fires at 2k; an achiral vertex reaction is the reaction plus its mirror). Fire with probability (sum of matching channel rates) / K, where K is the largest total rate of any element state, and pick the channel in proportion to its rate (accepted 2026-11-18).
 4. Rebuild the lookup tables whenever the player switches blocks (cheap).
 
-Time: one sweep = one attempt per eligible element; the simulation clock advances by 1 / max_rate per sweep. Speed control changes sweeps per second.
+Time: one sweep = one attempt per eligible element; the simulation clock advances by 1 / K per sweep (1 / (K · n_elig) per attempt, so partial sweeps are allowed). Speed control sets sim time units per wall second (viewer ×1 = 1 time unit per second).
 
-Mean-field equations (derived, product measure: each cell independently has colour c with probability x_c): each reaction contributes to dx/dt its rate times the probability of a matching configuration times the net change in colour counts, with attempt weights 1 : 3 : 2 for cell, edge and vertex reactions. Generate these equations automatically from any reaction set; they are used by the solver and by tests.
+Mean-field equations (derived, product measure: each cell independently has colour c with probability x_c): each reaction contributes to dx/dt its rate times the number of orientations (1 cell, 2 edge, 3 chiral vertex, 6 achiral vertex) times the product of the input fractions times the net change in colour counts, with attempt weights 1 : 3 : 2 for cell, edge and vertex reactions. Generate these equations automatically from any reaction set; they are used by the solver and by tests.
 
-Shuffled control: a mode that randomly permutes cell colours after each sweep (well-mixed). It must agree with the mean-field equations on a large grid; the difference between normal and shuffled runs is the spatial effect.
+Shuffled control: a well-mixed mode in which every attempt draws the element's cells at random (equivalent to a permutation before every attempt; accepted 2026-11-18, because shuffling once per sweep leaves errors of about 5 % against mean field). It must agree with the mean-field equations on a large grid; the difference between normal and shuffled runs is the spatial effect.
 
 Assumptions and regime: discrete-time random sequential updates approximate a continuous-time Markov chain when each sweep changes a small fraction of elements; mean-field is exact only for the shuffled control; extinction on a finite grid is always eventually possible, so "hold" goals have finite durations.
 
@@ -112,6 +113,7 @@ Level file (levels/Lxx.json):
   "id": "L04",
   "grid": { "type": "hex", "n": 64 },
   "palette": 3,
+  "empty": null,
   "reactions": [
     { "shape": "edge",   "in": [0, 1], "out": [0, 0], "rate": 1.0 },
     { "shape": "edge",   "in": [1, 2], "out": [1, 1], "rate": 1.0 },
@@ -125,6 +127,8 @@ Level file (levels/Lxx.json):
   "meta": { "min_switches_found": 2, "timing_matters": true, "mean_field_wrong": true }
 }
 ```
+
+Optional "empty": a colour index that plays the role of empty space (May–Leonard levels: selection A|B → A|E, reproduction A|E → A|A, hopping A|E → E|A). It is an ordinary colour for the model; only the display differs (dark cell, hollow glyph).
 
 Campaign of 8–10 levels: learn the swap on a two-reaction level; voter-model coarsening; tip a balance; rock-paper-scissors: keep all three alive; rock-paper-scissors: make one extinct; a chiral level; a timing level (switch, wait, switch back); mixed. Chris picks and orders levels from solver output.
 

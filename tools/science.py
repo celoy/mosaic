@@ -87,11 +87,13 @@ def first_extinction(rows: list[list[float]], palette: int) -> float:
     return float("nan")
 
 
-def snapshot(sim: Sim, path: Path, size: float = 5.0) -> None:
+def snapshot(sim: Sim, path: Path, size: float = 5.0, empty: int | None = None) -> None:
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     import pygame
 
     pal = np.array([pygame.Color(h)[:3] for h in CFG["palette"]["colours"]])
+    if empty is not None:
+        pal[empty] = pygame.Color(CFG["palette"]["empty"])[:3]
     pm = hex_pixel_map(sim.graph, size)
     rgb = render_rgb(pm, sim.colours, pal, pygame.Color(CFG["palette"]["background"])[:3])
     pygame.image.save(pygame.surfarray.make_surface(rgb.swapaxes(0, 1)), str(path))
@@ -212,6 +214,75 @@ def check_rps(quick: bool) -> None:
     _summary(d, lines)
 
 
+# ---- check 2b: May-Leonard (empty colour) ----------------------------------------------------
+def may_leonard_set(eps: float, exchange: str = "all", sigma: float = 1.0, mu: float = 1.0):
+    """Species 0, 1, 2 and empty 3: selection i|i+1 -> i|E, reproduction i|E -> i|i,
+    exchange at rate eps between all unlike pairs ("all") or only with empty ("holes")."""
+    e = 3
+    rx = []
+    for i in range(3):
+        rx.append(Reaction("edge", [i, (i + 1) % 3], [i, e], sigma))
+    for i in range(3):
+        rx.append(Reaction("edge", [i, e], [i, i], mu))
+    if eps > 0:
+        pairs = [(0, 1), (1, 2), (2, 0)] if exchange == "all" else []
+        pairs += [(i, e) for i in range(3)]
+        rx += [Reaction("edge", [a, b], [b, a], eps) for a, b in pairs]
+    return ReactionSet(rx, 4)
+
+
+def check_mayleonard(quick: bool) -> None:
+    p = {
+        "n": 64,
+        "seeds": 1 if quick else 2,
+        "t_max": 60.0 if quick else 200.0,
+        "eps": [0, 1] if quick else [0, 0.3, 1, 3, 10],
+        "exchange": ["all", "holes"],
+    }
+    d = new_run_dir("science", "mayleonard", p)
+    g = hex_torus(p["n"])
+    rows, lines = (
+        [],
+        [
+            "May-Leonard: selection i|i+1 -> i|E, reproduction i|E -> i|i (rates 1), exchange eps",
+            f"n={p['n']}, start 1/4 each, {p['seeds']} seeds, t <= {p['t_max']}.",
+            "exchange  eps    extinct  mean t_ext  x_empty(end)  rho_unlike(end)",
+        ],
+    )
+    for ex in p["exchange"]:
+        for eps in p["eps"]:
+            if ex == "holes" and eps == 0:
+                continue
+            ext, xe, rho = [], [], []
+            for seed in range(p["seeds"]):
+                sim = Sim(
+                    g,
+                    may_leonard_set(eps, ex),
+                    initial_colours(g.n_cells, [0.25] * 4, seed),
+                    seed + 3,
+                )
+                r = trace(sim, p["t_max"], 1.0, extra=lambda s: [unlike_edges(s)])
+                rows += [[ex, eps, seed, *row] for row in r]
+                # extinction of a species (colours 0..2), not of the empty colour
+                ext.append(next((row[0] for row in r if min(row[1:4]) == 0.0), float("nan")))
+                xe.append(r[-1][4])
+                rho.append(r[-1][5])
+                if seed == 0:
+                    snapshot(sim, d / f"ml_{ex}_eps{eps:g}_t{int(sim.t)}.png", empty=3)
+            n_ext = int(np.sum(~np.isnan(ext)))
+            mt = np.nanmean(ext) if n_ext else float("nan")
+            lines.append(
+                f"{ex:9s} {eps:<6g} {n_ext}/{p['seeds']}  {mt:10.1f}  "
+                f"{np.mean(xe):12.3f}  {np.mean(rho):15.3f}"
+            )
+    write_csv(
+        d / "mayleonard.csv",
+        ["exchange", "eps", "seed", "t", "x0", "x1", "x2", "xE", "rho_unlike"],
+        rows,
+    )
+    _summary(d, lines)
+
+
 # ---- check 3: chiral vertex rotation --------------------------------------------------------
 def check_chiral(quick: bool) -> None:
     p = {"n": 64, "seeds": 2 if quick else 3, "t_max": 60.0 if quick else 200.0, "k_rot": 0.3}
@@ -310,7 +381,13 @@ def check_levels(quick: bool) -> None:
     _summary(d, lines)
 
 
-CHECKS = {"voter": check_voter, "rps": check_rps, "chiral": check_chiral, "levels": check_levels}
+CHECKS = {
+    "voter": check_voter,
+    "rps": check_rps,
+    "mayleonard": check_mayleonard,
+    "chiral": check_chiral,
+    "levels": check_levels,
+}
 
 
 def main() -> None:

@@ -80,3 +80,25 @@ T01 voter, T02 RPS + exchange, T03 chiral (the brief's L04). None has been check
 solvability (that is Phase 2). One observation from the viewer smoke test: an arbitrary single swap in
 T02 (exchange 0|1 → 1|0 becomes 0|1 → 1|1 at rate 2) wipes out two colours by t ≈ 3. T02
 falls to one switch.
+
+## Addendum (same day): empty colour, May–Leonard
+
+Colour 3 is used as empty space. Reactions: selection i|i+1 → i|E (σ = 1), reproduction
+i|E → i|i (μ = 1), exchange at rate ε, either between all unlike pairs ("all") or only hops
+into empty sites ("holes"). Run: `runs/science/mayleonard_20261118-121110`.
+
+| exchange | ε = 0 | 0.3 | 1 | 3 | 10 |
+|---|---|---|---|---|---|
+| all, extinct (2 seeds, t ≤ 200, n = 64) | 0/2 | 0/2 | 0/2 | 1/2 | 2/2 (t ≈ 11) |
+| holes | | 0/2 | 0/2 | 0/2 | 0/2 |
+
+- The empty fraction stays low on the grid (5–9 %), against 25 % at the mean-field fixed point.
+- At 64 × 64 there are domains but no recognisable spirals, for every ε tried.
+- At 128 × 128 with ε = 1 (all), curved rotating arms appear: rough spirals. The spiral
+  wavelength (∝ √ε) is comparable to a 64-cell grid, so spirals need about 128 × 128, or
+  reaction rates that shorten the wavelength.
+- The Phase 0 benchmark gave 219 sweeps/s at 128 × 128 in Chrome, so the larger grid is
+  affordable in Godot.
+
+T04 (levels/T04_mayleonard.json) is the "holes" variant with ε = 1 (9 reactions, so the
+panel fits). Try it with `--n 128` to compare.
