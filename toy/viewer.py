@@ -41,13 +41,11 @@ from mosaic_model import GoalTracker, Level, Sim, load_level, make_sim  # noqa: 
 from mosaic_model.graph import SQRT3  # noqa: E402
 from mosaic_model.raster import fit_size, render_rgb, view_pixel_map, world_centre  # noqa: E402
 from mosaic_model.reactions import ARITY, Block, Reaction  # noqa: E402
-from palette import colour_names, glyphs, names, palette_rgb  # noqa: E402
+from palette import colour_names, glyphs, names, palette_rgb, ui_colours  # noqa: E402
 
 RB = 16.0  # circumradius of an equation block (hexagon), px
 GAP = 1.08  # spacing factor between neighbouring blocks (1 = touching)
-WHITE = (235, 235, 240)
-GREY = (140, 140, 150)
-DARK = (25, 25, 30)
+DARK = (25, 25, 30)  # outlines and glyphs drawn on top of cell colours
 METER_FACE = (232, 222, 190)
 METER_INK = (40, 36, 30)
 NEEDLE = (200, 40, 30)
@@ -87,7 +85,8 @@ class Viewer:
         self.palette_name = pal["default"]
         self.pal = palette_rgb(cfg, level.palette, self.palette_name)
         self.cnames = colour_names(cfg, level.palette, self.palette_name)
-        self.bg = pygame.Color(pal["background"])[:3]
+        self.ui = ui_colours(cfg, self.palette_name)  # interface colours follow the palette
+        self.bg = self.ui["bg"]
         self.glyphs = glyphs(cfg, level.palette)
         self.show_glyphs = bool(pal.get("show_glyphs", False))
         self.menu_open = False
@@ -250,8 +249,8 @@ class Viewer:
         self._draw_status()
         self._draw_menu()
 
-    def _text(self, s: str, pos, font=None, col=WHITE) -> int:
-        surf = (font or self.font).render(s, True, col)
+    def _text(self, s: str, pos, font=None, col=None) -> int:
+        surf = (font or self.font).render(s, True, col or self.ui["fg"])
         self.screen.blit(surf, pos)
         return surf.get_height()
 
@@ -268,7 +267,7 @@ class Viewer:
             f"{self.rate_meas:4.2f} t/s   K={sim.K:g}   {mode}",
             (x, y + 2),
             self.small,
-            GREY,
+            self.ui["mid"],
         )
         return self._draw_buttons(y + 8)
 
@@ -283,9 +282,11 @@ class Viewer:
         for key, text, w in labels:
             r = pg.Rect(x, y, w, 26)
             active = (key == "pause" and self.paused) or key == f"speed{self.speed_i}"
-            pg.draw.rect(self.screen, (80, 80, 96) if active else (50, 50, 60), r, border_radius=5)
-            pg.draw.rect(self.screen, GREY, r, 1, border_radius=5)
-            t = self.font.render(text, True, WHITE)
+            pg.draw.rect(
+                self.screen, self.ui["btn_on"] if active else self.ui["btn"], r, border_radius=5
+            )
+            pg.draw.rect(self.screen, self.ui["mid"], r, 1, border_radius=5)
+            t = self.font.render(text, True, self.ui["fg"])
             self.screen.blit(t, t.get_rect(center=r.center))
             self.buttons[key] = r
             x += w + 8
@@ -298,9 +299,9 @@ class Viewer:
             ("arrows", f"Arrows: {self.arrow_style}", 120),
         ):
             r = pg.Rect(x, y2, w, 26)
-            pg.draw.rect(self.screen, (50, 50, 60), r, border_radius=5)
-            pg.draw.rect(self.screen, GREY, r, 1, border_radius=5)
-            t = self.font.render(text, True, WHITE)
+            pg.draw.rect(self.screen, self.ui["btn"], r, border_radius=5)
+            pg.draw.rect(self.screen, self.ui["mid"], r, 1, border_radius=5)
+            t = self.font.render(text, True, self.ui["fg"])
             self.screen.blit(t, t.get_rect(center=r.center))
             self.buttons[key] = r
             x += w + 8
@@ -310,17 +311,19 @@ class Viewer:
         if self.notice and time.time() < self.notice_until:
             self._text(self.notice, (x, y2 + 32), self.small, (240, 180, 90))
         elif self.paused and not self.edit:
-            self._text("paused: no switching", (x, y2 + 32), self.small, GREY)
+            self._text("paused: no switching", (x, y2 + 32), self.small, self.ui["mid"])
         elif self.sim.n_elig == 0 or self.sim.K <= 0:
-            self._text("every reaction is off (k = 0)", (x, y2 + 32), self.small, GREY)
+            self._text("every reaction is off (k = 0)", (x, y2 + 32), self.small, self.ui["mid"])
         return y2 + 50
 
     def _button(self, key: str, text: str, x: float, y: float, w: int, active=False):
         pg = self.pg
         r = pg.Rect(x, y, w, 26)
-        pg.draw.rect(self.screen, (80, 80, 96) if active else (50, 50, 60), r, border_radius=5)
-        pg.draw.rect(self.screen, GREY, r, 1, border_radius=5)
-        t = self.font.render(text, True, WHITE)
+        pg.draw.rect(
+            self.screen, self.ui["btn_on"] if active else self.ui["btn"], r, border_radius=5
+        )
+        pg.draw.rect(self.screen, self.ui["mid"], r, 1, border_radius=5)
+        t = self.font.render(text, True, self.ui["fg"])
         self.screen.blit(t, t.get_rect(center=r.center))
         self.buttons[key] = r
         return r
@@ -339,18 +342,18 @@ class Viewer:
             return y
         y += 32
         x = self.panel_x
-        self._text("paint:", (x, y + 6), self.font, GREY)
+        self._text("paint:", (x, y + 6), self.font, self.ui["mid"])
         x += 50
         pg = self.pg
         for c in range(self.level.palette):
             cc = (x + 13, y + 13)
             if c == self.paint:
-                pg.draw.polygon(self.screen, WHITE, self._hex_points(cc, 15))
+                pg.draw.polygon(self.screen, self.ui["fg"], self._hex_points(cc, 15))
                 pg.draw.polygon(self.screen, self.bg, self._hex_points(cc, 13))
             pg.draw.polygon(self.screen, self.pal[c], self._hex_points(cc, 11))
             self.buttons[f"paint{c}"] = pg.Rect(x, y, 26, 26)
             x += 30
-        self._text("click: paint   right-click: lock", (x + 10, y + 7), self.small, GREY)
+        self._text("click: paint   right-click: lock", (x + 10, y + 7), self.small, self.ui["mid"])
         return y
 
     def _draw_menu(self) -> None:
@@ -361,13 +364,13 @@ class Viewer:
         r0 = self.buttons["palette"]
         y = r0.bottom + 2
         for name in names(self.cfg):
-            r = pg.Rect(r0.x, y, 260, 26)
-            pg.draw.rect(self.screen, (35, 35, 44), r)
-            pg.draw.rect(self.screen, GREY, r, 1)
-            self._text(name, (r.x + 8, r.y + 6), self.font)
+            r = pg.Rect(r0.x, y, 330, 26)
+            pg.draw.rect(self.screen, self.ui["btn"], r)
+            pg.draw.rect(self.screen, self.ui["mid"], r, 1)
+            self._text(name, (r.x + 8, r.y + 6), self.small)
             sw = palette_rgb(self.cfg, self.level.palette, name)
             for k, c in enumerate(sw):
-                pg.draw.rect(self.screen, c, pg.Rect(r.x + 120 + k * 22, r.y + 5, 18, 16))
+                pg.draw.rect(self.screen, c, pg.Rect(r.x + 130 + k * 22, r.y + 5, 18, 16))
             self.buttons[f"pal:{name}"] = r
             y += 26
 
@@ -442,11 +445,11 @@ class Viewer:
         rs = self.sim.reactions
         col = rs.get(b)
         if b == self.selected:  # white ring with a gap: visible on any block colour
-            pg.draw.polygon(self.screen, WHITE, self._hex_points(c, RB + 7))
+            pg.draw.polygon(self.screen, self.ui["fg"], self._hex_points(c, RB + 7))
             pg.draw.polygon(self.screen, self.bg, self._hex_points(c, RB + 4))
         locked = b in rs.locked
         if locked:  # a fixed block sits in a grey frame, like a tile set in the panel
-            pg.draw.polygon(self.screen, GREY, self._hex_points(c, RB + 3))
+            pg.draw.polygon(self.screen, self.ui["mid"], self._hex_points(c, RB + 3))
         pg.draw.polygon(self.screen, self.pal[col], self._hex_points(c, RB))
         if locked:
             pg.draw.polygon(self.screen, DARK, self._hex_points(c, RB), 2)
@@ -478,7 +481,7 @@ class Viewer:
             info = f"k={r.rate:g}  {lv:.3f}"
             if r.shape == "vertex":
                 info += "  cw only" if r.chiral else "  either hand"
-            self._text(info, (xi, cy - 7), self.small, GREY)
+            self._text(info, (xi, cy - 7), self.small, self.ui["mid"])
         return rows[-1][1] + rows[-1][2] + 14 if rows else y
 
     def _draw_arrow(self, ax: float, cy: float, frac: float) -> None:
@@ -489,15 +492,15 @@ class Viewer:
         tip = ax + 42
         if frac <= 0:
             for x in range(int(ax), int(tip), 6):
-                pg.draw.line(self.screen, (80, 80, 90), (x, cy), (x + 2, cy), 2)
+                pg.draw.line(self.screen, self.ui["line"], (x, cy), (x + 2, cy), 2)
             return
         if self.arrow_style == "grey":
-            col = (
-                (235, 235, 240) if frac > 0.75 else (160, 160, 170) if frac > 0.4 else (95, 95, 105)
-            )
+            f = 1.0 if frac > 0.75 else 0.6 if frac > 0.4 else 0.3
+            bg, fg = self.ui["bg"], self.ui["fg"]
+            col = tuple(int(b + f * (t - b)) for b, t in zip(bg, fg, strict=True))
             width = 3
         else:
-            col = (215, 215, 222)
+            col = self.ui["fg"]
             width = 1 + round(4 * frac)
         pg.draw.line(self.screen, col, (ax, cy), (tip - 8, cy), width)
         pg.draw.polygon(self.screen, col, [(tip, cy), (tip - 11, cy - 6), (tip - 11, cy + 6)])
@@ -542,7 +545,7 @@ class Viewer:
         w = self.screen.get_width() - x - 15
         h = self.cfg["chart"]["height"]
         rect = pg.Rect(x, y, w, h)
-        pg.draw.rect(self.screen, (40, 40, 48), rect)
+        pg.draw.rect(self.screen, self.ui["chart"], rect)
         win = self.cfg["chart"]["window"]
         t1 = max(self.sim.t, win)
         t0 = t1 - win
@@ -566,7 +569,7 @@ class Viewer:
                 pg.draw.rect(overlay, (*self.pal[goal["color"]], 160), pg.Rect(0, h - 4, w, 4))
         self.screen.blit(overlay, rect)
         for v in (0.25, 0.5, 0.75):
-            pg.draw.line(self.screen, (60, 60, 70), px(t0, v), px(t1, v))
+            pg.draw.line(self.screen, self.ui["line"], px(t0, v), px(t1, v))
         ts = np.array(self.hist_t)
         xs = np.array(self.hist_x)
         sel = ts >= t0
@@ -574,18 +577,20 @@ class Viewer:
             for c in range(xs.shape[1]):
                 pts = [px(t, v) for t, v in zip(ts[sel], xs[sel, c], strict=True)]
                 pg.draw.lines(self.screen, self.pal[c], False, pts, 2)
-        self._text("fractions vs time", (x + 4, y + 3), self.small, GREY)
+        self._text("fractions vs time", (x + 4, y + 3), self.small, self.ui["mid"])
         # goals
         yy = y + h + 10
         for k, goal in enumerate(self.level.goals):
             pr = self.tracker.progress(self.sim.t)[k]
             yy += self._draw_segments(self._goal_segments(goal, f"[{pr:4.0%}]  goal:"), x, yy)
         for f in self.level.fail:
-            yy += self._draw_segments(self._goal_segments(f, "fail if:", fail=True), x, yy, GREY)
+            yy += self._draw_segments(
+                self._goal_segments(f, "fail if:", fail=True), x, yy, self.ui["mid"]
+            )
         help_ = "click 2 blocks to swap | wheel zoom, drag pan, 0 reset | spc 1-4 R S"
         if self.sandbox and self.edit:
             help_ = "edit: paint blocks, right-click lock, shape/k buttons | Mode: play to swap"
-        self._text(help_, (x, self.screen.get_height() - 22), self.small, GREY)
+        self._text(help_, (x, self.screen.get_height() - 22), self.small, self.ui["mid"])
 
     def _goal_segments(self, g: dict, prefix: str, fail: bool = False) -> list:
         """Goal as text pieces and colour swatches (ints), e.g. ["goal: make", 2, "coral",
@@ -607,17 +612,17 @@ class Viewer:
             return seg + [f"(+/- {g['tol']:g}) for t = {g['duration']:g}"]
         return [prefix, json.dumps(g)]
 
-    def _draw_segments(self, segs: list, x: float, y: float, col=WHITE) -> int:
+    def _draw_segments(self, segs: list, x: float, y: float, col=None) -> int:
         """Draw text pieces separated by spaces; an int is a hex swatch of that colour."""
         for s_ in segs:
             if isinstance(s_, int):
                 c = (x + 8, y + 7)
                 pg = self.pg
-                pg.draw.polygon(self.screen, GREY, self._hex_points(c, 9))
+                pg.draw.polygon(self.screen, self.ui["mid"], self._hex_points(c, 9))
                 pg.draw.polygon(self.screen, self.pal[s_], self._hex_points(c, 8))
                 x += 20
             else:
-                surf = self.font.render(s_, True, col)
+                surf = self.font.render(s_, True, col or self.ui["fg"])
                 self.screen.blit(surf, (x, y))
                 x += surf.get_width() + 6
         return 22
@@ -763,6 +768,8 @@ class Viewer:
         self.palette_name = name
         self.pal = palette_rgb(self.cfg, self.level.palette, name)
         self.cnames = colour_names(self.cfg, self.level.palette, name)
+        self.ui = ui_colours(self.cfg, name)
+        self.bg = self.ui["bg"]
 
     def _notify(self, msg: str) -> None:
         self.notice = msg

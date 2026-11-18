@@ -34,7 +34,7 @@ from mosaic_model.raster import hex_pixel_map, render_rgb  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "toy"))
 
-from palette import palette_rgb  # noqa: E402
+from palette import palette_rgb, ui_colours  # noqa: E402
 from runlog import new_run_dir, write_csv  # noqa: E402
 
 CFG = tomllib.loads((ROOT / "toy" / "viewer.toml").read_text())
@@ -97,7 +97,7 @@ def snapshot(sim: Sim, path: Path, size: float = 5.0) -> None:
 
     pal = palette_rgb(CFG, sim.palette)
     pm = hex_pixel_map(sim.graph, size, border=CFG["grid"]["border"])
-    rgb = render_rgb(pm, sim.colours, pal, pygame.Color(CFG["palette"]["background"])[:3])
+    rgb = render_rgb(pm, sim.colours, pal, ui_colours(CFG)["bg"])
     pygame.image.save(pygame.surfarray.make_surface(rgb.swapaxes(0, 1)), str(path))
 
 

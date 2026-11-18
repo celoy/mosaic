@@ -23,6 +23,7 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: T05 (relative handedness, 4 colours): flipping one chiral reaction moves x0 from 0.35 to 0.02, mean field blind to it (0.46 for both). With 3 colours handedness is pinned by topology and does not matter. teal_coral palette added. Next: Gate B (Chris plays T02, T04, T05).
 - 2026-11-18: Gate B (Chris played): live switching not interesting; lamps unreadable; levels too easy (move the target colour to the inputs, take it out of the products): kill criterion met, redesign before building levels. Chosen: hexagonal torus of side 74 (16 207 cells, about 128²), teal_coral default palette, 5 colours, keep chirality. Viewer: log-scale needle meters instead of lamps, x1/4 speed, zoom and pan, goal colours named with a swatch, framed locked blocks. Chris proposes a sandbox (random start, write up to 4 equations, place locks). Direction pending.
 - 2026-11-18: Chris: sandbox first, as a design tool (toy/viewer.py --sandbox: paint blocks, right-click locks, shape and k per slot, 4 slots, random start, save to levels/sandbox/); game format decided after exploring with it. Arrows: same head, rate by line width or by three greys (toggle). Rate 0 = reaction off.
+- 2026-11-18: 14 palettes from Chris added with colour names; the five with more than 5 colours (split_ui) give their darkest colour to the background and their lightest to the text; interface tones follow the palette. Separation table in the session report.
 
 ## Deadline and jam
 
