@@ -51,7 +51,7 @@ background = "#1E1E24"
 # for these long palettes a level with n colours uses the n best-separated ones (largest
 # smallest Delta E, normal vision, over all pairs and against the background; ties broken by
 # deuteranopia, then protanopia)
-best_subset = ["jasmine_sage", "olive_almond", "charcoal_brick", "dusk_coral", "neon_turquoise"]
+best_subset = ["strawberry_slate", "jasmine_sage", "olive_almond", "charcoal_brick", "dusk_coral", "neon_turquoise"]
 
 [palettes]
 # Lists of hex colours. Levels with more colours than listed get extra pastel hues.
@@ -75,6 +75,17 @@ charcoal_brick = ["#734F5A", "#264653", "#2A9D8F", "#E9C46A", "#F4A261", "#E76F5
 dusk_coral = ["#4C6085", "#39A0ED", "#36F1CD", "#13C4A3", "#F7B32B", "#FE5F55", "#E4572E", "#161613"]
 plum_gold = ["#820263", "#D90368", "#EADEDA", "#2E294E", "#FFD400"]
 neon_turquoise = ["#F72585", "#B5179E", "#7209B7", "#560BAD", "#480CA8", "#3A0CA3", "#159F91", "#1BCCBA", "#1EE3CF", "#92F2E8"]
+slate_bordeaux = ["#335C67", "#FFF3B0", "#E09F3E", "#9E2A2B", "#540B0E"]
+eggshell_peach = ["#F4F1DE", "#E07A5F", "#3D405B", "#81B29A", "#F2CC8F"]
+bubblegum = ["#EF476F", "#FFD166", "#06D6A0", "#118AB2", "#073B4C"]
+amber_sea = ["#FF9F1C", "#FFBF69", "#FFFFFF", "#CBF3F0", "#2EC4B6"]
+charcoal_pumpkin = ["#233D4D", "#FE7F2D", "#FCCA46", "#A1C181", "#619B8A"]
+ink_tangerine = ["#001524", "#15616D", "#FFECD1", "#FF7D00", "#78290F"]
+strawberry_slate = ["#F94144", "#F3722C", "#F8961E", "#F9C74F", "#90BE6D", "#43AA8B", "#577590"]
+space_lemon = ["#2B2D42", "#E86A92", "#F7E733", "#F7F7F9", "#41E2BA"]
+indigo_gold = ["#541388", "#D90368", "#F1E9DA", "#2E294E", "#FFD400"]
+grape_sunflower = ["#B8B8D1", "#5B5F97", "#FFC145", "#FFFFFB", "#FF6B6C"]
+jet_coral = ["#292F36", "#4ECDC4", "#F7FFF7", "#FF6B6B", "#FFE66D"]
 greyscale = []
 
 [palette_names]
@@ -97,3 +108,14 @@ charcoal_brick = ["mauve shadow", "charcoal blue", "verdigris", "tuscan sun", "s
 dusk_coral = ["dusk blue", "blue bell", "aquamarine", "mint leaf", "sunflower", "coral", "paprika", "onyx"]
 plum_gold = ["royal plum", "berry", "dust grey", "space indigo", "gold"]
 neon_turquoise = ["neon pink", "raspberry", "indigo bloom", "ultrasonic blue", "true azure", "vivid royal", "verdigris", "turquoise", "turquoise 2", "soft cyan"]
+slate_bordeaux = ["dark slate grey", "vanilla custard", "honey bronze", "brown red", "night bordeaux"]
+eggshell_peach = ["eggshell", "burnt peach", "twilight indigo", "muted teal", "apricot cream"]
+bubblegum = ["bubblegum pink", "golden pollen", "emerald", "ocean blue", "dark teal"]
+amber_sea = ["amber glow", "honey bronze", "white", "frozen water", "light sea green"]
+charcoal_pumpkin = ["charcoal blue", "pumpkin spice", "golden pollen", "muted olive", "seagrass"]
+ink_tangerine = ["ink black", "stormy teal", "papaya whip", "vivid tangerine", "brandy"]
+strawberry_slate = ["strawberry red", "atomic tangerine", "carrot orange", "tuscan sun", "willow green", "seagrass", "blue slate"]
+space_lemon = ["space indigo", "rose kiss", "bright lemon", "bright snow", "turquoise"]
+indigo_gold = ["indigo", "berry lipstick", "eggshell", "space indigo", "gold"]
+grape_sunflower = ["pale slate", "dusty grape", "sunflower gold", "porcelain", "grapefruit"]
+jet_coral = ["jet black", "strong cyan", "mint cream", "grapefruit", "royal gold"]
