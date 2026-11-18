@@ -31,6 +31,10 @@ from mosaic_model import (  # noqa: E402
     rhs,
 )
 from mosaic_model.raster import hex_pixel_map, render_rgb  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "toy"))
+
+from palette import palette_rgb  # noqa: E402
 from runlog import new_run_dir, write_csv  # noqa: E402
 
 CFG = tomllib.loads((ROOT / "toy" / "viewer.toml").read_text())
@@ -87,14 +91,12 @@ def first_extinction(rows: list[list[float]], palette: int) -> float:
     return float("nan")
 
 
-def snapshot(sim: Sim, path: Path, size: float = 5.0, empty: int | None = None) -> None:
+def snapshot(sim: Sim, path: Path, size: float = 5.0) -> None:
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     import pygame
 
-    pal = np.array([pygame.Color(h)[:3] for h in CFG["palette"]["colours"]])
-    if empty is not None:
-        pal[empty] = pygame.Color(CFG["palette"]["empty"])[:3]
-    pm = hex_pixel_map(sim.graph, size)
+    pal = palette_rgb(CFG, sim.palette)
+    pm = hex_pixel_map(sim.graph, size, border=CFG["grid"]["border"])
     rgb = render_rgb(pm, sim.colours, pal, pygame.Color(CFG["palette"]["background"])[:3])
     pygame.image.save(pygame.surfarray.make_surface(rgb.swapaxes(0, 1)), str(path))
 
@@ -214,9 +216,9 @@ def check_rps(quick: bool) -> None:
     _summary(d, lines)
 
 
-# ---- check 2b: May-Leonard (empty colour) ----------------------------------------------------
+# ---- check 2b: May-Leonard (colour 3 is the gap left by selection) ---------------------
 def may_leonard_set(eps: float, exchange: str = "all", sigma: float = 1.0, mu: float = 1.0):
-    """Species 0, 1, 2 and empty 3: selection i|i+1 -> i|E, reproduction i|E -> i|i,
+    """Species 0, 1, 2 and gap colour 3: selection i|i+1 -> i|E, reproduction i|E -> i|i,
     exchange at rate eps between all unlike pairs ("all") or only with empty ("holes")."""
     e = 3
     rx = []
@@ -268,7 +270,7 @@ def check_mayleonard(quick: bool) -> None:
                 xe.append(r[-1][4])
                 rho.append(r[-1][5])
                 if seed == 0:
-                    snapshot(sim, d / f"ml_{ex}_eps{eps:g}_t{int(sim.t)}.png", empty=3)
+                    snapshot(sim, d / f"ml_{ex}_eps{eps:g}_t{int(sim.t)}.png")
             n_ext = int(np.sum(~np.isnan(ext)))
             mt = np.nanmean(ext) if n_ext else float("nan")
             lines.append(

@@ -24,10 +24,12 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "toy"))
 
 from mosaic_model import GoalTracker, Level, Sim, load_level, make_sim  # noqa: E402
 from mosaic_model.raster import hex_pixel_map, render_rgb  # noqa: E402
 from mosaic_model.reactions import ARITY, Block  # noqa: E402
+from palette import glyphs, palette_rgb  # noqa: E402
 
 B = 30  # block size, px
 GAP = 3
@@ -59,12 +61,9 @@ class Viewer:
         self.small = pygame.font.Font(None, 17)
         self.big = pygame.font.Font(None, 36)
         pal = cfg["palette"]
-        self.pal = np.array([pygame.Color(c)[:3] for c in pal["colours"]])
+        self.pal = palette_rgb(cfg, level.palette)
         self.bg = pygame.Color(pal["background"])[:3]
-        self.glyphs = list(pal["glyphs"])
-        if level.empty is not None:
-            self.pal[level.empty] = pygame.Color(pal["empty"])[:3]
-            self.glyphs[level.empty] = "empty"
+        self.glyphs = glyphs(cfg, level.palette)
 
         t0 = time.perf_counter()
         print(f"burn-in: {level.start.get('burn_in_sweeps', 0)} sweeps ...", flush=True)
@@ -76,7 +75,7 @@ class Viewer:
             cfg["window"]["grid_width"] / (math.sqrt(3) * (g.n + 0.5)),
             (h - 20) / (1.5 * g.n + 0.5),
         )
-        self.pixmap = hex_pixel_map(g, size)
+        self.pixmap = hex_pixel_map(g, size, border=cfg["grid"]["border"])
         self.grid_rect = pygame.Rect(10, 10, self.pixmap.shape[1], self.pixmap.shape[0])
         self.grid_surf = pygame.Surface(self.grid_rect.size)
         self.panel_x = self.grid_rect.right + 25
@@ -243,31 +242,31 @@ class Viewer:
         pg = self.pg
         c = rect.center
         s = rect.width * 0.22
-        if kind == "empty":
-            pg.draw.circle(self.screen, GREY, c, s, 2)
-        elif kind == "circle":
+        x, y = c
+        if kind == "circle":
             pg.draw.circle(self.screen, col, c, s)
+        elif kind == "ring":
+            pg.draw.circle(self.screen, col, c, s * 1.1, 3)
         elif kind == "triangle":
-            pg.draw.polygon(
-                self.screen,
-                col,
-                [(c[0], c[1] - s), (c[0] + s, c[1] + s * 0.8), (c[0] - s, c[1] + s * 0.8)],
-            )
+            tri = [(x, y - s), (x + s, y + s * 0.8), (x - s, y + s * 0.8)]
+            pg.draw.polygon(self.screen, col, tri)
         elif kind == "square":
-            pg.draw.rect(
-                self.screen, col, pg.Rect(c[0] - s * 0.85, c[1] - s * 0.85, 1.7 * s, 1.7 * s)
-            )
-        else:
+            pg.draw.rect(self.screen, col, pg.Rect(x - s * 0.85, y - s * 0.85, 1.7 * s, 1.7 * s))
+        elif kind == "diamond":
             pg.draw.polygon(
-                self.screen,
-                col,
-                [
-                    (c[0], c[1] - s * 1.2),
-                    (c[0] + s, c[1]),
-                    (c[0], c[1] + s * 1.2),
-                    (c[0] - s, c[1]),
-                ],
+                self.screen, col, [(x, y - s * 1.2), (x + s, y), (x, y + s * 1.2), (x - s, y)]
             )
+        elif kind == "cross":
+            pg.draw.line(self.screen, col, (x - s, y), (x + s, y), 4)
+            pg.draw.line(self.screen, col, (x, y - s), (x, y + s), 4)
+        elif kind == "x":
+            pg.draw.line(self.screen, col, (x - s, y - s), (x + s, y + s), 4)
+            pg.draw.line(self.screen, col, (x - s, y + s), (x + s, y - s), 4)
+        elif kind == "bar":
+            pg.draw.rect(self.screen, col, pg.Rect(x - s * 1.1, y - s * 0.35, 2.2 * s, 0.7 * s))
+        else:  # colour index as text
+            t = self.font.render(kind, True, col)
+            self.screen.blit(t, t.get_rect(center=c))
 
     def _draw_block(self, b: Block, rect) -> None:
         pg = self.pg
@@ -366,7 +365,7 @@ class Viewer:
         for f in self.level.fail:
             yy += self._text(f"fail if: {self._goal_text(f)}", (x, yy), col=GREY) + 2
         help_ = (
-            "click two blocks to swap (while running) | thicker arrow = larger k | "
+            "click 2 blocks to swap (running only) | thick arrow = large k | "
             "keys: space 1 2 3 R S Esc"
         )
         self._text(help_, (x, self.screen.get_height() - 22), self.small, GREY)

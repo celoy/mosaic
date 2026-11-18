@@ -18,6 +18,7 @@ Working title "Mosaic Shift" (not cleared, see Open questions). This file is the
 - 2026-11-18: Phase 0 done: repo celoy/mosaic (MIT), .venv + pytest, Godot 4.7.2 web benchmark ≈ 890 sweeps/s at 64 × 64 in headless Chrome (docs/phase0_benchmark.md); grid size 64 × 64 proposed. Waiting for go on Phase 1.
 - 2026-11-18: Phase 1 built (grid 64 × 64 confirmed by Chris): mosaic_model, tests 1–7 pass, science checks 1–4 run (docs/phase1_notes.md), pygame viewer, test levels T01–T03. Gate B pending: Chris plays the viewer.
 - 2026-11-18: Chris accepted the rate rule and per-attempt shuffled control. Added empty colour (T04 May–Leonard), viewer at 1 time unit/s with partial sweeps, Pause/speed/Restart buttons, swaps only while running, arrow thickness ∝ k, --n grid override. Spirals visible at n = 128, not at 64.
+- 2026-11-18: Chris: colours only, no special empty colour; no limit on the number of colours for now; no hex borders. Active-set vs rejection benchmark (Python + GDScript): rejection kept (active set ~3× slower at 15–30 % firing, faster only below ~5–10 % active).
 
 ## Deadline and jam
 
@@ -57,7 +58,7 @@ Fun hypothesis (falsifiable in Phases 1–2):
 
 Kill criterion, at Gate B (Sunday 22 November): if most test levels fall to a single switch, or the mean-field equations predict every outcome, the spatial game is decoration. Redesign the reaction sets before building levels.
 
-Out of scope for the jam: painting cells, editing reaction shapes or rates, more than 4 colours, scores and leaderboards, level editor, topological changes of the foam, touch controls, voice, 3D.
+Out of scope for the jam: painting cells, editing reaction shapes or rates, scores and leaderboards, level editor, topological changes of the foam, touch controls, voice, 3D.
 
 ## Model
 
@@ -113,7 +114,6 @@ Level file (levels/Lxx.json):
   "id": "L04",
   "grid": { "type": "hex", "n": 64 },
   "palette": 3,
-  "empty": null,
   "reactions": [
     { "shape": "edge",   "in": [0, 1], "out": [0, 0], "rate": 1.0 },
     { "shape": "edge",   "in": [1, 2], "out": [1, 1], "rate": 1.0 },
@@ -128,8 +128,6 @@ Level file (levels/Lxx.json):
 }
 ```
 
-Optional "empty": a colour index that plays the role of empty space (May–Leonard levels: selection A|B → A|E, reproduction A|E → A|A, hopping A|E → E|A). It is an ordinary colour for the model; only the display differs (dark cell, hollow glyph).
-
 Campaign of 8–10 levels: learn the swap on a two-reaction level; voter-model coarsening; tip a balance; rock-paper-scissors: keep all three alive; rock-paper-scissors: make one extinct; a chiral level; a timing level (switch, wait, switch back); mixed. Chris picks and orders levels from solver output.
 
 ## Godot game
@@ -139,7 +137,7 @@ Campaign of 8–10 levels: learn the swap on a two-reaction level; voter-model c
 - Golden tests: `godot --headless --script res://tests/run_tests.gd` checks lookup tables, chirality, conservation, goal detection, and compares population curves of fixed-seed runs with the Python twin statistically (same mean-field limit in shuffled mode; same qualitative outcome in normal mode).
 - Rendering: one MultiMesh or a texture-based hex renderer; colours updated per frame from the byte array. Flat cells, thin dark borders.
 - UI: reaction panel with equations drawn as colour blocks (edge: two blocks and an arrow; vertex: a triangle of three blocks with a rotation arrow), a lamp beside each, click or drag to swap two blocks, locked blocks marked. Pause, speed (×1, ×4, ×16), restart, level select. Population chart with goal bands. Optional firing-flash overlay toggle.
-- Palette: 3–4 colours distinguishable by colour-blind players (start from the Okabe–Ito palette, recalled; check), plus a distinct glyph on each block in the equations.
+- Palette: no fixed limit on the number of colours (Chris, 2026-11-18: find out how many make the game interesting); colours distinguishable by colour-blind players (start from the Okabe–Ito palette, recalled; check), plus a distinct glyph on each block in the equations.
 - Audio: each reaction has its own soft pluck; firing rate sets the density of plucks, so the mosaic sounds like a chord that changes with the balance. AudioStreamGenerator if it behaves in the web export, otherwise CC0 samples, credited.
 - Progress: completed levels in user://progress.json.
 - Performance: benchmark in Phase 0. Target: at least 4 sweeps per second at ×1 on the chosen grid in Chrome on the user's laptop (guess). If not met, shrink the grid (48 × 48, then 40 × 40) before anything else.

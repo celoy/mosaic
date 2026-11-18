@@ -20,9 +20,12 @@ half = 0.02               # firing rate per cell per unit time at which a lamp i
 window = 60.0             # sim time units shown
 height = 220
 
+[grid]
+border = 0.0              # dark gap between hexes, fraction of the inradius (0 = none)
+
 [palette]
-# Okabe-Ito (recalled, to be checked): orange, sky blue, bluish green, reddish purple
-colours = ["#E69F00", "#56B4E9", "#009E73", "#CC79A7"]
-glyphs = ["circle", "triangle", "square", "diamond"]
+# Okabe-Ito order without black (recalled, to be checked). Levels with more colours than
+# listed get extra hues generated evenly around the colour wheel (and a number as glyph).
+colours = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999"]
+glyphs = ["circle", "triangle", "square", "diamond", "cross", "ring", "bar", "x"]
 background = "#1E1E24"
-empty = "#3A3A46"          # colour drawn for a level's "empty" colour

@@ -102,3 +102,45 @@ into empty sites ("holes"). Run: `runs/science/mayleonard_20261118-121110`.
 
 T04 (levels/T04_mayleonard.json) is the "holes" variant with ε = 1 (9 reactions, so the
 panel fits). Try it with `--n 128` to compare.
+
+## Addendum: active-set (incremental) algorithm vs rejection
+
+Question (Chris): would it be faster or leaner to keep tables of which elements can react,
+updated after each firing, instead of drawing among all elements and rejecting?
+
+Active-set algorithm (`model/mosaic_model/sim_active.py`, `game/tests/bench_active.gd`):
+- Keep the list of elements whose colours match at least one channel, and draw attempts
+  only from it; time advances by 1/(K·M) per attempt, M = list size.
+- After a firing, re-check every element that touches a changed cell: 13 per cell
+  (1 cell, 6 edges, 6 vertices).
+- Same Markov chain as the rejection algorithm.
+
+**Equivalence** (`tools/bench_active.py`: 24 seeds per algorithm, n = 32, 4 reaction sets
+covering all shapes and a chiral count-changing vertex reaction). The 15 observables agree
+within statistical error; the largest |z| is 1.87.
+
+**Speed** (wall time per unit of sim time, both algorithms from the same state).
+
+| case | n | fraction of attempts that fire (rejection) | Python speed-up | GDScript speed-up |
+|---|---|---|---|---|
+| T01–T04 stationary starts | 64 | 15–20 % | 0.31–0.49 | 0.35–0.36 (T02/T03 edges) |
+| T01–T04 stationary starts | 128 | 15–21 % | 0.34–0.66 | 0.35–0.36 |
+| single straight front | 64 | 3.5 % | 2.0 | 2.2 |
+| single straight front | 128 | 1.9 % | 4.0 | 4.0 |
+
+(speed-up = rejection time / active time; < 1 means the active set is slower.)
+
+Conclusion: in the states the game lives in, 15–30 % of attempts fire, and a firing costs
+about one attempt plus several re-checks. Here the active set is about 3× slower, in both
+Python and GDScript. It wins only when activity is sparse (break-even near 5–10 % of
+elements active), and there the absolute cost of rejection is already small
+(GDScript: 1.4 ms per time unit at 64², 5.4 ms at 128²). Memory is negligible either way
+(≈ 0.5 MB of index arrays at 128²).
+
+Decision proposed: keep the rejection algorithm. If late, coarsened states ever matter for
+speed (solver runs to extinction), a hybrid could count active elements now and then and
+switch below ~5 %.
+
+Absolute GDScript cost (native headless, rejection): RPS + exchange (T02) 4.6 ms per
+time unit at 64², 18 ms at 128². At ×16 (16 time units per second) that is 7 % / 29 % of
+a CPU core. Both fit.

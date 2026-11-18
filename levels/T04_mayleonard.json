@@ -1,9 +1,8 @@
 {
   "id": "T04",
-  "title": "May-Leonard: three species and empty space",
+  "title": "May-Leonard: three species and a gap colour",
   "grid": { "type": "hex", "n": 64 },
   "palette": 4,
-  "empty": 3,
   "reactions": [
     { "shape": "edge", "in": [0, 1], "out": [0, 3], "rate": 1.0 },
     { "shape": "edge", "in": [1, 2], "out": [1, 3], "rate": 1.0 },
@@ -19,5 +18,5 @@
   "start": { "seed": 7, "fractions": [0.25, 0.25, 0.25, 0.25], "burn_in_sweeps": 300 },
   "goals": [ { "type": "extinct", "color": 1 } ],
   "fail": [ ],
-  "meta": { "note": "Phase 1 test level: selection, reproduction into empty (colour 3), hopping into empty. Solvability not checked yet." }
+  "meta": { "note": "Phase 1 test level: selection, colour 3 plays the gap (selection leaves 3, reproduction into 3, hopping into 3). Solvability not checked yet." }
 }
