@@ -85,7 +85,8 @@ def main() -> None:
             snapshot(sim, out / f"{name}_{s}.png", size=3.0)
             half = r[len(r) // 2 :, 1:-1][:, present]
             line = (
-                f"{name:9s} seed {s}: mean {np.round(half.mean(0), 3)} sd {np.round(half.std(0), 3)}"
+                f"{name:9s} seed {s}: mean {np.round(half.mean(0), 3)}"
+                f" sd {np.round(half.std(0), 3)}"
                 f"  unlike edges {r[-1, -1]:.3f}  lost {t_lost or '-'}"
                 f"  ({time.perf_counter() - t0:.0f} s)"
             )
